@@ -1,0 +1,5 @@
+{
+  "name": "self-iterate",
+  "description": "A Claude-Code-native loop that self-iterates any agent's harness (prompt/skills/tools) until a user-defined, verifiable goal is met. Users provide only a .self-iterate/<goal>/ eval spec; a generic claude-p adapter covers Claude-native agents, with a drop-in run_case.py escape hatch for others.",
+  "author": { "name": "loop-iteration" }
+}
