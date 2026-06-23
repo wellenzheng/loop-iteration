@@ -24,9 +24,21 @@ Status: **MET** (run by the maker on 2026-06-23; human to re-run as checker).
 - 2026-06-23 — `git init`; `.gitignore` added (excludes the eval scratch workspace).
 - 2026-06-23 — This state spine created.
 - 2026-06-23 — `README.md` playbook written (maps all 5 blocks to concrete handles).
+- 2026-06-23 — **Self-iteration loop minimal version implemented** (16-task plan, branch
+  `feat/self-iteration-loop`). Python core: `scoring`, `gates`, `judge`, `adapter`,
+  `case_runner`, `goal_check`, `state`, `llm_client`. Toy adapter + `toy-basic` eval.
+  Skills: `self-iterate`, `case-evaluator`. Sub-agents: `harness-rewriter` (maker),
+  `goal-checker` (reviewer). **30 tests green.** Golden-round integration proves the
+  machinery (score rises, goal met, regression blocked).
+- 2026-06-23 — **Live checks (no-secret) PASS:** `goal_check` CLI prints verdict + exits
+  1 on not-met (by design); `apply_variant` creates a real worktree of this repo, source
+  stays byte-identical after a worktree edit (hermetic), cleans up.
 
 ## In flight
-(none)
+- **Live end-to-end round PENDING user environment** — a full `case_runner` round needs the
+  real `claude` CLI in the worktree + `OPENAI_API_KEY` for the judge. Not runnable in the
+  build session (no secrets). This is the remaining manual gate before declaring the loop
+  production-usable.
 
 ## Blocked
 - **No connectors wired (block 4)** — by design. Wire on the first loop that needs to
@@ -36,10 +48,12 @@ Status: **MET** (run by the maker on 2026-06-23; human to re-run as checker).
   product is the first *real* loop, not a bootstrap decision.
 
 ## Next
-The human decides the first real loop goal. Write it here as one line:
-`- [ ] <thing> — done when: <verifiable command>`.
-The acceptance criterion must be a command exit code, not a vibe — that's what a checker
-(human or sub-agent) grades against.
+The first real loop goal is now concrete: **dogfood the loop on the toy agent.**
+`- [ ] self-iterate toy toward toy-basic — done when: a live run raises the composite to ≥0.85
+   threshold with no gate regression (run with OPENAI_API_KEY + the claude CLI available), and
+   `python -m loop_iter.goal_check --eval evals/toy-basic --run-id <run_id>` exits 0.`
+The acceptance criterion is a command exit code, not a vibe — that's what the goal-checker
+(and you) grade against. After that: build the `maas` adapter (#2) to validate generalization.
 
 ## Tried & outcome
 - 2026-06-23 bootstrap — chose to under-build on purpose (no cron / worktree / connector /
