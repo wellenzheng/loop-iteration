@@ -33,12 +33,15 @@ Status: **MET** (run by the maker on 2026-06-23; human to re-run as checker).
 - 2026-06-23 — **Live checks (no-secret) PASS:** `goal_check` CLI prints verdict + exits
   1 on not-met (by design); `apply_variant` creates a real worktree of this repo, source
   stays byte-identical after a worktree edit (hermetic), cleans up.
+- 2026-06-23 — **First real dogfood run DONE** — `self-iterate toy toward toy-basic`, run
+  `20260623_a47e34`. Live end-to-end round 1 with real `claude` CLI + `OPENAI_API_KEY`.
+  Maker sharpened the deliberately-vague harness into one rule ("answer in exactly one
+  bare word, no punctuation, no hedging"). Composite **1.0**, both gates 1.0, conciseness
+  10.0. `goal_check` exit 0 (`met: true`). Source repo untouched; worktree made + removed.
+  Winner: `.loop/iterate/20260623_a47e34/variants/round_1/`.
 
 ## In flight
-- **Live end-to-end round PENDING user environment** — a full `case_runner` round needs the
-  real `claude` CLI in the worktree + `OPENAI_API_KEY` for the judge. Not runnable in the
-  build session (no secrets). This is the remaining manual gate before declaring the loop
-  production-usable.
+- _(none — first dogfood goal closed in one round.)_
 
 ## Blocked
 - **No connectors wired (block 4)** — by design. Wire on the first loop that needs to
@@ -48,12 +51,13 @@ Status: **MET** (run by the maker on 2026-06-23; human to re-run as checker).
   product is the first *real* loop, not a bootstrap decision.
 
 ## Next
-The first real loop goal is now concrete: **dogfood the loop on the toy agent.**
-`- [ ] self-iterate toy toward toy-basic — done when: a live run raises the composite to ≥0.85
-   threshold with no gate regression (run with OPENAI_API_KEY + the claude CLI available), and
-   `python -m loop_iter.goal_check --eval evals/toy-basic --run-id <run_id>` exits 0.`
-The acceptance criterion is a command exit code, not a vibe — that's what the goal-checker
-(and you) grade against. After that: build the `maas` adapter (#2) to validate generalization.
+- [x] ~~self-iterate toy toward toy-basic — done when composite ≥ 0.85, no gate regression,
+   `goal_check` exit 0.~~ **DONE 2026-06-23** (run `20260623_a47e34`, composite 1.0 round 1).
+- [ ] Build the `maas` adapter (#2) to validate generalization beyond the toy agent.
+- [ ] Hardening: c1/c2 judge returned no dims on this run (c3 scored 10). Investigate why the
+   judge LLM returned empty for two of three cases — likely a parsing/response-length quirk in
+   `judge._parse_dims` or the model dropping JSON. Not blocking (composite already 1.0 from gates)
+   but it's a latent bug for goals where the judge dim is load-bearing.
 
 ## Tried & outcome
 - 2026-06-23 bootstrap — chose to under-build on purpose (no cron / worktree / connector /

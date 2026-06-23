@@ -1,0 +1,69 @@
+{
+  "run_id": "20260623_a47e34",
+  "rounds": [
+    {
+      "cases": [
+        {
+          "case_id": "c1",
+          "gates": [
+            {
+              "gate": "is_one_word",
+              "passed": true
+            },
+            {
+              "gate": "matches_expected",
+              "passed": true
+            }
+          ],
+          "judge": [],
+          "error": null
+        },
+        {
+          "case_id": "c2",
+          "gates": [
+            {
+              "gate": "is_one_word",
+              "passed": true
+            },
+            {
+              "gate": "matches_expected",
+              "passed": true
+            }
+          ],
+          "judge": [],
+          "error": null
+        },
+        {
+          "case_id": "c3",
+          "gates": [
+            {
+              "gate": "is_one_word",
+              "passed": true
+            },
+            {
+              "gate": "matches_expected",
+              "passed": true
+            }
+          ],
+          "judge": [
+            {
+              "dim": "conciseness",
+              "score": 10.0
+            }
+          ],
+          "error": null
+        }
+      ],
+      "composite": 1.0,
+      "gate_pass_rates": {
+        "is_one_word": 1.0,
+        "matches_expected": 1.0
+      },
+      "judge_means": {
+        "conciseness": 10.0
+      },
+      "round": 1
+    }
+  ],
+  "best_round": 1
+}
