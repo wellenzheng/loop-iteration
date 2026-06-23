@@ -1,6 +1,0 @@
-threshold: 0.85
-max_rounds: 3
-regression: block
-weights:
-  gates: 2.0
-  conciseness: 1.0
