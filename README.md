@@ -48,3 +48,35 @@ why. This file is the project-level playbook: how the five building blocks + sta
 Bootstrap complete. The project is a loop-first empty vessel on purpose: there is no app
 skeleton yet, because picking the product is the **first real loop**, not a bootstrap
 decision. See [`.loop/progress.md`](.loop/progress.md) → *Next*.
+
+## Self-iteration loop (the product)
+
+This repo *is* an agent-harness self-iteration loop. It iterates an agent's harness
+(prompt/skills/tools) until a verifiable goal is met. See
+[the design](docs/superpowers/specs/2026-06-23-self-iteration-loop-design.md).
+
+### Run it on the toy agent (dogfood)
+
+```bash
+. .venv/bin/activate
+export OPENAI_API_KEY=...      # for the LLM judge
+export OPENAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+export OPENAI_MODEL=glm-4.7
+
+# One round, interactively (read state, stage worktree, maker, checker, goal-check):
+#   tell Claude Code: "self-iterate toy toward toy-basic, run_id $(date +%Y%m%d_%H%M%S)_toy"
+
+# Unattended (run-until-done until the goal is met):
+#   use ralph/autopilot with self-iterate as the worker and goal-checker as the reviewer
+```
+
+State lands in `.loop/iterate/<run_id>/` (`progress.md`, `scores.json`, `variants/round_N/`).
+The loop never auto-merges — review `report.md` and merge the winning variant yourself.
+
+### Point it at your own agent
+
+1. **Adapter** — `adapters/<my-agent>/{run_case.py, apply_variant.py, agent_files/}`
+   (copy `adapters/toy/` and change `run_case` to invoke your agent).
+2. **Goal** — `evals/<my-goal>/{goal.yaml, cases.json, gates.py, judge.md}`
+   (copy `evals/toy-basic/` and edit the gates/rubric/threshold).
+3. **Run** — in Claude Code: "self-iterate `<my-agent>` toward `<my-goal>`".
