@@ -49,34 +49,43 @@ Bootstrap complete. The project is a loop-first empty vessel on purpose: there i
 skeleton yet, because picking the product is the **first real loop**, not a bootstrap
 decision. See [`.loop/progress.md`](.loop/progress.md) → *Next*.
 
-## Self-iteration loop (the product)
+## self-iterate (the plugin)
 
-This repo *is* an agent-harness self-iteration loop. It iterates an agent's harness
-(prompt/skills/tools) until a verifiable goal is met. See
-[the design](docs/superpowers/specs/2026-06-23-self-iteration-loop-design.md).
+This repo **is** a Claude Code plugin that self-iterates any agent's harness
+(prompt/skills/tools) until a verifiable goal is met. Design:
+[spec](docs/superpowers/specs/2026-06-23-plugin-ization-design.md).
 
-### Run it on the toy agent (dogfood)
-
-```bash
-. .venv/bin/activate
-export OPENAI_API_KEY=...      # for the LLM judge
-export OPENAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4
-export OPENAI_MODEL=glm-4.7
-
-# One round, interactively (read state, stage worktree, maker, checker, goal-check):
-#   tell Claude Code: "self-iterate toy toward toy-basic, run_id $(date +%Y%m%d_%H%M%S)_toy"
-
-# Unattended (run-until-done until the goal is met):
-#   use ralph/autopilot with self-iterate as the worker and goal-checker as the reviewer
+### Install
+Place this repo in your Claude Code plugins dir (or your usual plugin-install path).
+Requires Python 3.11+. Then in any repo:
+```
+/self-iterate setup        # bootstraps .self-iterate/.venv + pyyaml/httpx (once)
 ```
 
-State lands in `.loop/iterate/<run_id>/` (`progress.md`, `scores.json`, `variants/round_N/`).
-The loop never auto-merges — review `report.md` and merge the winning variant yourself.
+### Use it on your agent
+In your agent's repo, write the only thing you need — an eval spec:
+```
+.self-iterate/<goal>/
+  goal.yaml     # threshold, weights, regression, optional agent:/harness: overrides
+  cases.json    # your QA set
+  gates.py      # your programmatic gates (GATES = {name: fn})
+  judge.md      # your LLM-rubric dims
+  # optional run_case.py — escape hatch for non-Claude-CLI agents (e.g. a service)
+```
+Then:
+```
+/self-iterate toward <goal>
+```
+A generic adapter handles Claude-native agents (no adapter code): it iterates the standard
+harness (`CLAUDE.md`, `AGENTS.md`, `.claude/skills/**`, `.claude/agents/**`) in an isolated
+git worktree, runs each case via `claude -p`, and scores with your gates + judge. State lands
+in your repo at `.loop/iterate/<run_id>/`. The loop never auto-merges — you merge the winner.
 
-### Point it at your own agent
+### Point it at a non-Claude agent
+Drop a `run_case.py` defining `run_case(case, worktree, harness_paths) -> result` into
+`.self-iterate/<goal>/`. The generic runner uses it instead of `claude -p`. That's the only
+code a non-Claude agent needs.
 
-1. **Adapter** — `adapters/<my-agent>/{run_case.py, apply_variant.py, agent_files/}`
-   (copy `adapters/toy/` and change `run_case` to invoke your agent).
-2. **Goal** — `evals/<my-goal>/{goal.yaml, cases.json, gates.py, judge.md}`
-   (copy `evals/toy-basic/` and edit the gates/rubric/threshold).
-3. **Run** — in Claude Code: "self-iterate `<my-agent>` toward `<my-goal>`".
+### Example
+See [`examples/toy/`](examples/toy/) — a one-word-answerer agent + its `.self-iterate/toy-basic/`
+eval spec, ready to `/self-iterate toward toy-basic`.
