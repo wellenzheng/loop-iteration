@@ -1,0 +1,17 @@
+# --- loop-engineering scratch / eval workspace (test artifacts, not source) ---
+.loop-engineering-workspace/
+
+# --- dependencies ---
+node_modules/
+
+# --- build / env ---
+dist/
+build/
+.env
+.env.local
+*.log
+
+# --- editor / OS ---
+.DS_Store
+.vscode/
+.idea/

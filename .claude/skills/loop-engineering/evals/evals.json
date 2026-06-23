@@ -1,0 +1,33 @@
+{
+  "skill_name": "loop-engineering",
+  "evals": [
+    {
+      "id": 0,
+      "name": "bootstrap-scaffolding",
+      "prompt": "把这个 loop-iteration 项目初始化起来。我想基于 loop-engineering 的方式来开发它，先帮我搭好骨架，告诉我后面怎么用这套 loop 来推进开发。",
+      "expected_output": "A loop-first project scaffold: an on-disk state file (.loop/progress.md), a pointer to skills/, a short README/plan explaining how the 5 building blocks + state map onto THIS project, and an explicit verifiable stopping condition for 'scaffolding done'. Should embody worktrees/skills/sub-agent/state thinking, and should NOT over-loop trivial steps.",
+      "files": [],
+      "assertions": [
+        "Establishes an on-disk state file (e.g. .loop/progress.md) that survives between runs",
+        "States a verifiable stopping condition for the scaffolding task (a concrete check, not a vibe-check)",
+        "Maps the 5 building blocks + state onto concrete choices for this project",
+        "Separates maker from checker (mentions a distinct reviewer/verifier role)",
+        "Acknowledges 'stay the engineer' — does not propose maximal autonomy for a trivial bootstrap"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "daily-triage-automation",
+      "prompt": "给这个项目加一个每天早上自动跑的 triage：读 CI 失败、open issues、最近的 commits，把发现写到状态文件里，值得做的再开 worktree 让 sub-agent 去修。",
+      "expected_output": "A daily triage loop design: a scheduled automation (cron /loop/hooks/Actions) that calls a triage skill, reads CI/issues/commits, writes findings to on-disk state, then opens isolated worktrees with a maker sub-agent + a checker sub-agent. Should call out connectors for closing the loop (PR/ticket) and name how the human stays in the loop (triage inbox, verification).",
+      "files": [],
+      "assertions": [
+        "Uses a scheduled automation primitive (/loop / cron / hooks / GitHub Actions) on a daily cadence",
+        "Triages CI failures, open issues, and recent commits, and writes findings to on-disk state",
+        "Opens isolated worktrees for fixes so parallel agents don't collide",
+        "Splits maker and checker into separate sub-agents",
+        "Names how the loop acts in the environment (connectors: PR/ticket) and how the human stays in the loop"
+      ]
+    }
+  ]
+}
