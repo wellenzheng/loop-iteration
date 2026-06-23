@@ -1,10 +1,15 @@
 """Unified CLI for the self-iterate plugin: apply-variant | case-run | goal-check | setup.
 Invoked by the skills as: python <plugin>/scripts/loop_iter/cli.py <cmd> ..."""
 from __future__ import annotations
+import os
+import sys
+# Bootstrap: put this package's parent (scripts/) on sys.path so the deferred
+# `from loop_iter.X` imports resolve when this file is run as a script from anywhere
+# (e.g. `python <plugin>/scripts/loop_iter/cli.py ...`), not just via `python -m`.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 
