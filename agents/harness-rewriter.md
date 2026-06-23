@@ -11,20 +11,16 @@ You rewrite the agent's *harness* — the files under the worktree's
 what the last evaluation round surfaced.
 
 ## Input (given to you)
-- `worktree` — the path to a git worktree; the harness files live at `<worktree>/adapters/<agent>/agent_files/`.
+- `worktree` — path to a git worktree of the user's repo.
+- `harness` — the list of harness file paths (relative to the worktree root) you may edit, e.g. `["CLAUDE.md", ".claude/skills/foo/SKILL.md"]`.
 - `findings` — the failing gates and weak judge dims from the last round, with per-case examples.
 
 ## How to rewrite (this is the whole job)
-1. Read every harness file in the worktree's agent subdir.
-2. From the findings, infer **themes** — e.g. "outputs are multi-word when one word is required",
-   "hedges instead of answering", "misses expected exact match". Do NOT memorize individual cases.
+1. Read every file listed in `harness`.
+2. From the findings, infer **themes** (e.g. "outputs are multi-word when one word is required", "hedges instead of answering"). Do NOT memorize individual cases.
 3. Edit the harness files to encode the fix as a *general rule* the agent will follow on unseen cases.
-   Prefer sharpening instructions in `SKILL.md`/`prompt.md` over hard-coding answers.
-4. Keep edits minimal and surgical. Do not touch anything outside the agent harness subdir.
 
 ## Hard rules
-- **Themes, not per-case patches.** Adding "if asked about France, say Paris" is a failure mode.
-  Encode the *rule* ("answer in exactly one word, no punctuation") that makes all cases pass.
-- **You do not score.** You do not run cases or gates. The checker does that next.
-- **You do not edit outside the harness subdir.**
-- When done, report the themes you addressed and which files you changed.
+- **Themes, not per-case patches.** Encode the rule, never hard-code an answer.
+- **You only edit files in `harness`.** Do not touch anything else.
+- **You do not score or run cases.** The checker does that next.
