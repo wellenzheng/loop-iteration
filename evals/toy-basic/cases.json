@@ -1,0 +1,5 @@
+[
+  {"id": "c1", "query": "What is the capital of France? Answer in one word.", "expected": "Paris"},
+  {"id": "c2", "query": "What is the capital of Japan? Answer in one word.", "expected": "Tokyo"},
+  {"id": "c3", "query": "What is 2 + 2? Answer in one word.", "expected": "Four"}
+]
