@@ -39,6 +39,16 @@ Status: **MET** (run by the maker on 2026-06-23; human to re-run as checker).
   bare word, no punctuation, no hedging"). Composite **1.0**, both gates 1.0, conciseness
   10.0. `goal_check` exit 0 (`met: true`). Source repo untouched; worktree made + removed.
   Winner: `.loop/iterate/20260623_a47e34/variants/round_1/`.
+- 2026-06-23 — **Plugin-ization complete** (10-task plan, branch `feat/plugin-ization`). Repo
+  restructured into a Claude Code plugin: `.claude-plugin/plugin.json` + root `skills/`/
+  `agents/`/`commands/` + bundled `scripts/loop_iter/`. Generic adapter replaces the toy-specific
+  one: `resolve_harness` (convention + `goal.yaml` override), `claude -p` default `run_case`,
+  drop-in `run_case.py` escape hatch, unified `cli.py` (`apply-variant`/`case-run`/`goal-check`/
+  `setup`). Users now write only `.self-iterate/<goal>/`; toy moved to `examples/`. **39 tests
+  green**; plugin-layout smoke passes (manifest valid, `python scripts/loop_iter/cli.py`
+  responds, `goal-check` exits 1 on empty). Fixed: cli.py sys.path bootstrap so it runs as a
+  script from any cwd. Remaining: install-path/distribution decision + the maas escape-hatch
+  validation (adapter #2).
 
 ## In flight
 - _(none — first dogfood goal closed in one round.)_
