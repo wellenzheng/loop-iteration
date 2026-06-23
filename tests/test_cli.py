@@ -40,3 +40,25 @@ def test_cli_apply_variant_prints_worktree_and_harness(tmp_path):
     assert data["harness"] == ["CLAUDE.md"]
     remove_worktree(data["worktree"])
     assert (repo / "CLAUDE.md").read_text() == "baseline"
+
+
+def test_cli_snapshot_copies_harness_from_worktree(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.adapter import remove_worktree
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    # stage a worktree, edit the harness there, then snapshot it
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["apply-variant", "--eval", str(ev), "--base", str(repo)])
+    wt = json.loads(buf.getvalue())["worktree"]
+    Path(wt, "CLAUDE.md").write_text("round1-edited")
+    dest = tmp_path / "snap"
+    buf2 = io.StringIO()
+    with contextlib.redirect_stdout(buf2):
+        main(["snapshot", "--eval", str(ev), "--worktree", wt, "--dest", str(dest), "--base", str(repo)])
+    out = json.loads(buf2.getvalue())
+    assert out["files"] == ["CLAUDE.md"]
+    assert (dest / "CLAUDE.md").read_text() == "round1-edited"
+    remove_worktree(wt)

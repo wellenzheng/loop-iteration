@@ -23,7 +23,11 @@ You run exactly one round, in the user's current repo (cwd). The broader loop is
    python <plugin-root>/scripts/loop_iter/cli.py case-run --eval .self-iterate/<goal> --worktree <worktree> --run-id <run_id> --round <round>
    ```
    which writes this round's RunScores into `.loop/iterate/<run_id>/scores.json` and returns failing gates + weak dims.
-4. **Snapshot + state.** Snapshot the variant's harness files into `.loop/iterate/<run_id>/variants/round_<N>/` (provenance). Append a one-line summary to `.loop/iterate/<run_id>/progress.md`.
+4. **Snapshot + state.** Snapshot the variant's harness files into `.loop/iterate/<run_id>/variants/round_<N>/` (provenance):
+   ```
+   python <plugin-root>/scripts/loop_iter/cli.py snapshot --eval .self-iterate/<goal> --worktree <worktree> --dest .loop/iterate/<run_id>/variants/round_<N>
+   ```
+   Append a one-line summary to `.loop/iterate/<run_id>/progress.md`.
 5. **Stop-condition handoff.** Run the goal-checker:
    ```
    python <plugin-root>/scripts/loop_iter/cli.py goal-check --eval .self-iterate/<goal> --run-id <run_id> [--best-gate-rates '<json>']

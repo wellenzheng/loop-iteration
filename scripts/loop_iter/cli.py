@@ -21,6 +21,13 @@ def _apply_variant(args):
     print(json.dumps({"worktree": wt, "harness": harness}))
 
 
+def _snapshot(args):
+    from loop_iter.adapter_generic import resolve_harness, snapshot_harness
+    harness = resolve_harness(args.eval, args.base)
+    snapshot_harness(args.worktree, harness, args.dest)
+    print(json.dumps({"dest": args.dest, "files": harness}))
+
+
 def _case_run(args):
     import yaml
     from loop_iter.state import RunPaths, append_round
@@ -76,6 +83,13 @@ def main(argv=None):
     s.add_argument("--base", default=".")
     s.add_argument("--baseline", default="HEAD")
     s.set_defaults(func=_apply_variant)
+
+    s = sub.add_parser("snapshot")
+    s.add_argument("--eval", required=True)
+    s.add_argument("--worktree", required=True)
+    s.add_argument("--dest", required=True)
+    s.add_argument("--base", default=".")
+    s.set_defaults(func=_snapshot)
 
     s = sub.add_parser("case-run")
     s.add_argument("--eval", required=True)
