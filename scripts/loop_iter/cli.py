@@ -25,6 +25,14 @@ def _snapshot(args):
     from loop_iter.adapter_generic import resolve_harness, snapshot_harness
     harness = resolve_harness(args.eval, args.base)
     snapshot_harness(args.worktree, harness, args.dest)
+    if args.run_id:
+        from loop_iter.state import RunPaths, load_state, advance_phase
+        rp = RunPaths(base=args.base, run_id=args.run_id)
+        if rp.state_file.exists():
+            st = load_state(rp)
+            if st["phase"] != "maker":
+                raise SystemExit(f"phase guard: snapshot requires phase=maker, got {st['phase']}")
+            advance_phase(rp, "maker", "eval")
     print(json.dumps({"dest": args.dest, "files": harness}))
 
 
@@ -45,6 +53,13 @@ def _case_run(args):
     out["round"] = args.round
     rp = RunPaths(base=args.base, run_id=args.run_id)
     append_round(rp, out)
+    # state-machine: advance eval -> goalcheck (only inside an active run)
+    if rp.state_file.exists():
+        from loop_iter.state import load_state, advance_phase
+        st = load_state(rp)
+        if st["phase"] != "eval":
+            raise SystemExit(f"phase guard: case-run requires phase=eval, got {st['phase']}")
+        advance_phase(rp, "eval", "goalcheck")
     print(json.dumps({"round": args.round, "composite": out["composite"],
                       "gate_pass_rates": out["gate_pass_rates"]}))
 
@@ -169,6 +184,7 @@ def main(argv=None):
     s.add_argument("--worktree", required=True)
     s.add_argument("--dest", required=True)
     s.add_argument("--base", default=".")
+    s.add_argument("--run-id", default=None)
     s.set_defaults(func=_snapshot)
 
     s = sub.add_parser("case-run")

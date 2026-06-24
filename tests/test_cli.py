@@ -250,3 +250,70 @@ def test_cli_init_refuses_to_clobber_existing_run(tmp_path):
         assert "already initialized" in str(e)
     # state must be untouched (still maker, not reset to baseline)
     assert load_state(rp)["phase"] == "maker"
+
+
+def test_cli_snapshot_advances_maker_to_eval_inside_run(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.adapter import remove_worktree
+    from loop_iter.state import RunPaths, init_state, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    import loop_iter.state as stmod
+    st = load_state(rp); st["phase"] = "maker"; st["round"] = 1; stmod.write_state(rp, st)
+    # stage a worktree + edit harness
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["apply-variant", "--eval", str(ev), "--base", str(repo)])
+    wt = json.loads(buf.getvalue())["worktree"]
+    Path(wt, "CLAUDE.md").write_text("edited")
+    dest = str(rp.variants_dir / "round_1")
+    buf2 = io.StringIO()
+    with contextlib.redirect_stdout(buf2):
+        main(["snapshot", "--eval", str(ev), "--worktree", wt, "--dest", dest,
+              "--base", str(repo), "--run-id", "r1"])
+    assert load_state(rp)["phase"] == "eval"
+    remove_worktree(wt)
+
+
+def test_cli_snapshot_legacy_without_run_id_unchanged(tmp_path):
+    # no state.json, no --run-id -> behaves as before, no phase advance
+    from loop_iter.cli import main
+    from loop_iter.adapter import remove_worktree
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["apply-variant", "--eval", str(ev), "--base", str(repo)])
+    wt = json.loads(buf.getvalue())["worktree"]
+    Path(wt, "CLAUDE.md").write_text("edited")
+    dest = tmp_path / "snap"
+    buf2 = io.StringIO()
+    with contextlib.redirect_stdout(buf2):
+        main(["snapshot", "--eval", str(ev), "--worktree", wt, "--dest", str(dest), "--base", str(repo)])
+    assert (dest / "CLAUDE.md").read_text() == "edited"   # snapshot still worked
+    remove_worktree(wt)
+
+
+def test_cli_case_run_advances_eval_to_goalcheck_inside_run(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    import loop_iter.state as stmod
+    st = load_state(rp); st["phase"] = "eval"; st["round"] = 1; stmod.write_state(rp, st)
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", lambda *a, **k:
+        {"cases": [], "composite": 0.9, "gate_pass_rates": {}, "judge_means": {}})
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["case-run", "--eval", str(ev), "--worktree", str(repo),
+              "--run-id", "r1", "--base", str(repo), "--round", "1"])
+    assert load_state(rp)["phase"] == "goalcheck"
