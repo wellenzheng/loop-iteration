@@ -147,3 +147,29 @@ def run_python_import_case(case: dict, worktree: str, config: dict) -> dict:
         return _normalize_result(raw, case["id"])
     except Exception as exc:
         return {"case_id": case["id"], "output": "", "trace": {}, "error": f"run_case error: {exc!r}"}
+
+
+_KNOWN_TYPES = {"claude-p", "command", "python-import", "custom"}
+
+
+def build_run_case(eval_dir: str, agent_config: dict | None, harness: list):
+    """Return a run_case_fn(case, worktree) chosen by agent_config['type'].
+
+    Precedence: command | python-import | claude-p -> that type. custom/omitted ->
+    run_case.py if present, else claude-p default. Unknown type -> ValueError.
+    """
+    cfg = agent_config or {}
+    atype = cfg.get("type")
+    if atype == "command":
+        return lambda case, worktree: run_command_case(case, worktree, cfg)
+    if atype == "python-import":
+        return lambda case, worktree: run_python_import_case(case, worktree, cfg)
+    if atype == "claude-p":
+        return lambda case, worktree: run_case_default(case, worktree, cfg)
+    if atype is not None and atype not in _KNOWN_TYPES:
+        raise ValueError(f"unknown agent.type {atype!r}; expected one of {sorted(_KNOWN_TYPES)} or omit")
+    # atype is None or "custom": escape hatch if present, else claude-p default
+    user_rc = load_run_case(eval_dir)
+    if user_rc is not None:
+        return lambda case, worktree: user_rc(case, worktree, harness)
+    return lambda case, worktree: run_case_default(case, worktree, cfg)

@@ -182,3 +182,63 @@ def test_run_python_import_case_never_raises(tmp_path):
     r = run_python_import_case({"id": "c1", "query": "q", "expected": None},
                                str(tmp_path), {"module": name, "module_path": [str(tmp_path)]})
     assert r["error"] is not None and r["output"] == ""
+
+
+import sys, pytest
+from loop_iter.adapter_generic import build_run_case
+
+
+def test_factory_command_type(tmp_path):
+    cmd = [sys.executable, "-c", "import sys; print(sys.argv[1].upper())", "{query}"]
+    rc = build_run_case(str(tmp_path), {"type": "command", "cmd": cmd}, [])
+    r = rc({"id": "c1", "query": "hi", "expected": None}, str(tmp_path))
+    assert r["output"].strip() == "HI"
+
+
+def test_factory_claude_p_type_returns_default_runner(tmp_path, monkeypatch):
+    # environment-independent: a real `claude` may be on PATH, so stub run_case_default
+    # to verify dispatch (the closure calls run_case_default with the config).
+    import loop_iter.adapter_generic as ag
+    captured = {}
+
+    def _stub(case, worktree, cfg):
+        captured["called"] = True
+        captured["cfg"] = cfg
+        return {"case_id": case["id"], "output": "", "trace": {}, "error": "stubbed"}
+
+    monkeypatch.setattr(ag, "run_case_default", _stub)
+    rc = build_run_case(str(tmp_path), {"type": "claude-p"}, [])
+    r = rc({"id": "c1", "query": "q", "expected": None}, str(tmp_path))
+    assert captured.get("called") is True
+    assert r["case_id"] == "c1" and r["error"] is not None
+
+
+def test_factory_omitted_type_with_run_case_py_uses_escape_hatch(tmp_path):
+    (tmp_path / "run_case.py").write_text(
+        "def run_case(case, worktree, harness):\n"
+        "    return {'case_id': case['id'], 'output': 'ESCAPE', 'trace': {}, 'error': None}\n")
+    rc = build_run_case(str(tmp_path), {}, ["CLAUDE.md"])
+    r = rc({"id": "c1", "query": "q", "expected": None}, "/tmp")
+    assert r["output"] == "ESCAPE"
+
+
+def test_factory_omitted_type_without_run_case_py_falls_back_to_claude_p(tmp_path, monkeypatch):
+    # environment-independent: stub run_case_default to confirm the factory falls back to
+    # the claude-p default runner (not the escape hatch) when no run_case.py is present.
+    import loop_iter.adapter_generic as ag
+    captured = {}
+
+    def _stub(case, worktree, cfg):
+        captured["called"] = True
+        return {"case_id": case["id"], "output": "", "trace": {}, "error": "stubbed"}
+
+    monkeypatch.setattr(ag, "run_case_default", _stub)
+    rc = build_run_case(str(tmp_path), {}, [])
+    r = rc({"id": "c1", "query": "q", "expected": None}, str(tmp_path))
+    assert captured.get("called") is True  # routed to claude-p default
+    assert r["error"] is not None  # stubbed error surfaced, did not raise
+
+
+def test_factory_unknown_type_raises(tmp_path):
+    with pytest.raises(ValueError):
+        build_run_case(str(tmp_path), {"type": "http"}, [])
