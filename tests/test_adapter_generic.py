@@ -140,3 +140,45 @@ def test_run_command_case_never_raises_on_bad_cmd(tmp_path):
                          str(tmp_path), {"cmd": ["/no/such/binary"], "timeout": 5})
     assert r["error"] is not None
     assert r["output"] == ""
+
+
+from loop_iter.adapter_generic import run_python_import_case
+
+
+def _write_entry(tmp_path, name, body):
+    (tmp_path / f"{name}.py").write_text(body)
+    return name
+
+
+def test_run_python_import_case_str_return(tmp_path):
+    name = _write_entry(tmp_path, "ent_str",
+        "def run(query, variant_dir, **extra):\n    return query.upper() + '@' + variant_dir\n")
+    r = run_python_import_case({"id": "c1", "query": "hi", "expected": None},
+                               str(tmp_path), {"module": name, "module_path": [str(tmp_path)],
+                                               "variant_subdir": "skills"})
+    assert r["output"] == "HI@" + str(tmp_path / "skills")
+    assert r["error"] is None
+
+
+def test_run_python_import_case_rich_dict_return(tmp_path):
+    name = _write_entry(tmp_path, "ent_dict",
+        "def run(query, variant_dir, **extra):\n    return {'output':'ok','trace':{'k':1},'error':None}\n")
+    r = run_python_import_case({"id": "c1", "query": "q", "expected": None},
+                               str(tmp_path), {"module": name, "module_path": [str(tmp_path)]})
+    assert r["output"] == "ok" and r["trace"] == {"k": 1}
+
+
+def test_run_python_import_case_forwards_extra_kwargs(tmp_path):
+    name = _write_entry(tmp_path, "ent_extra",
+        "def run(query, variant_dir, channel='x', **_):\n    return channel\n")
+    r = run_python_import_case({"id": "c1", "query": "q", "expected": None},
+                               str(tmp_path), {"module": name, "module_path": [str(tmp_path)],
+                                               "extra": {"channel": "qiyu"}})
+    assert r["output"] == "qiyu"
+
+
+def test_run_python_import_case_never_raises(tmp_path):
+    name = _write_entry(tmp_path, "ent_boom", "def run(query, variant_dir, **_):\n    raise RuntimeError('x')\n")
+    r = run_python_import_case({"id": "c1", "query": "q", "expected": None},
+                               str(tmp_path), {"module": name, "module_path": [str(tmp_path)]})
+    assert r["error"] is not None and r["output"] == ""

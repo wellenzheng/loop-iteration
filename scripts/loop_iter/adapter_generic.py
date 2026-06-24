@@ -84,6 +84,7 @@ def snapshot_harness(worktree: str, harness_paths: list[str], dest: str) -> None
 
 
 import os
+import sys
 
 
 def _variant_dir(worktree: str, config: dict) -> str:
@@ -125,3 +126,24 @@ def run_command_case(case: dict, worktree: str, config: dict) -> dict:
     except Exception as exc:
         output, error = "", f"run_case error: {exc!r}"
     return {"case_id": case["id"], "output": output, "trace": {}, "error": error}
+
+
+import importlib
+
+
+def run_python_import_case(case: dict, worktree: str, config: dict) -> dict:
+    """Import config['module'] (after adding config['module_path'] to sys.path), call
+    config['entry'](query=, variant_dir=, **extra); normalize the return. Never raises."""
+    variant_dir = _variant_dir(worktree, config)
+    for p in config.get("module_path", []):
+        ap = os.path.abspath(p)
+        if ap not in sys.path:
+            sys.path.insert(0, ap)
+    try:
+        mod = importlib.import_module(config["module"])
+        entry = getattr(mod, config.get("entry", "run"))
+        raw = entry(query=case.get("query", ""), variant_dir=variant_dir,
+                    **(config.get("extra") or {}))
+        return _normalize_result(raw, case["id"])
+    except Exception as exc:
+        return {"case_id": case["id"], "output": "", "trace": {}, "error": f"run_case error: {exc!r}"}
