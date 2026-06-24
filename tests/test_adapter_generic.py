@@ -242,3 +242,28 @@ def test_factory_omitted_type_without_run_case_py_falls_back_to_claude_p(tmp_pat
 def test_factory_unknown_type_raises(tmp_path):
     with pytest.raises(ValueError):
         build_run_case(str(tmp_path), {"type": "http"}, [])
+
+
+from loop_iter.adapter_generic import harness_text
+
+
+def test_harness_text_concatenates_with_headers_and_skips_missing(tmp_path):
+    # build a fake eval dir + repo with two harness files
+    repo = tmp_path / "repo"; repo.mkdir()
+    (repo / "CLAUDE.md").write_text("hello")
+    (repo / "AGENTS.md").write_text("world")
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("harness: [CLAUDE.md, AGENTS.md, MISSING.md]\nthreshold: 0.5\nmax_rounds: 1\nweights: {gates: 1.0}\n")
+    text = harness_text(str(ev), str(repo), str(repo))
+    assert "### CLAUDE.md\nhello" in text
+    assert "### AGENTS.md\nworld" in text
+    assert "MISSING.md" not in text   # missing file skipped, no header
+
+
+def test_harness_text_does_not_crash_on_binary(tmp_path):
+    repo = tmp_path / "repo"; repo.mkdir()
+    (repo / "CLAUDE.md").write_bytes(b"\xff\xfe\x00bad bytes")
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("harness: [CLAUDE.md]\nthreshold: 0.5\nmax_rounds: 1\nweights: {gates: 1.0}\n")
+    text = harness_text(str(ev), str(repo), str(repo))   # must not raise
+    assert "### CLAUDE.md" in text

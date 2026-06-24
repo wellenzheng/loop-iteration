@@ -30,13 +30,14 @@ def resolve_harness(eval_dir: str, repo_root: str) -> list[str]:
 
 def harness_text(eval_dir: str, repo_root: str, read_root: str) -> str:
     """Concatenate the harness files (resolved against repo_root) read from read_root, each headed
-    with `### <rel>`. Used to feed the quality-judge. Missing files are skipped."""
+    with `### <rel>`. Used to feed the quality-judge. Missing files are skipped. Reads as UTF-8 with
+    errors='replace' so a binary/non-utf8 harness file never crashes the round (degrade, never crash)."""
     harness = resolve_harness(eval_dir, repo_root)
     parts = []
     for rel in harness:
         p = Path(read_root, rel)
         if p.exists():
-            parts.append(f"### {rel}\n{p.read_text()}")
+            parts.append(f"### {rel}\n{p.read_text(encoding='utf-8', errors='replace')}")
     return "\n\n".join(parts)
 
 
