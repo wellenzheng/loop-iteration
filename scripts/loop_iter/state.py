@@ -13,42 +13,40 @@ class RunPaths:
     def run_dir(self) -> Path:
         return Path(self.base, ".self-iterate", "runs", self.run_id)
 
-    def _ensure(self) -> Path:
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        return self.run_dir
-
     @property
     def state_file(self) -> Path:
-        return self._ensure() / "state.json"
+        return self.run_dir / "state.json"
 
     @property
     def baseline_file(self) -> Path:
-        return self._ensure() / "baseline.json"
+        return self.run_dir / "baseline.json"
 
     @property
     def report_md(self) -> Path:
-        return self._ensure() / "report.md"
+        return self.run_dir / "report.md"
 
     @property
     def winner_diff(self) -> Path:
-        return self._ensure() / "winner.diff"
+        return self.run_dir / "winner.diff"
 
     @property
     def scores(self) -> Path:
-        return self._ensure() / "scores.json"
+        return self.run_dir / "scores.json"
 
     @property
     def progress(self) -> Path:
-        return self._ensure() / "progress.md"
+        return self.run_dir / "progress.md"
 
     @property
     def variants_dir(self) -> Path:
-        d = self._ensure() / "variants"; d.mkdir(parents=True, exist_ok=True)
+        d = self.run_dir / "variants"
+        d.mkdir(parents=True, exist_ok=True)
         return d
 
 
 def _now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    from datetime import timezone
+    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
 
 
 # ---- scores.json (accumulating rounds) ----
@@ -58,6 +56,7 @@ def _load_raw(rp: RunPaths) -> dict:
     return json.loads(rp.scores.read_text())
 
 def write_scores(rp: RunPaths, data: dict) -> None:
+    rp.run_dir.mkdir(parents=True, exist_ok=True)
     rp.scores.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 def load_scores(rp: RunPaths) -> dict:
@@ -71,11 +70,13 @@ def append_round(rp: RunPaths, run_scores: dict) -> dict:
     return data
 
 def write_progress(rp: RunPaths, body: str) -> None:
+    rp.run_dir.mkdir(parents=True, exist_ok=True)
     rp.progress.write_text(f"# Run {rp.run_id}\n\n{body}\n")
 
 
 # ---- state.json (phase machine) ----
 def write_state(rp: RunPaths, st: dict) -> None:
+    rp.run_dir.mkdir(parents=True, exist_ok=True)
     p = rp.state_file
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(st, indent=2, ensure_ascii=False))

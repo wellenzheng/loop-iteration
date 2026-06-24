@@ -1,4 +1,16 @@
-from loop_iter.state import RunPaths, write_scores, load_scores, write_progress, append_round
+import json
+import pytest
+from loop_iter.state import (
+    RunPaths,
+    write_scores,
+    load_scores,
+    write_progress,
+    append_round,
+    init_state,
+    load_state,
+    write_state,
+    advance_phase,
+)
 
 def test_run_paths_layout(tmp_path):
     rp = RunPaths(base=str(tmp_path), run_id="20260623_120000_abcd1234")
@@ -26,9 +38,6 @@ def test_write_progress_creates_file(tmp_path):
     rp = RunPaths(base=str(tmp_path), run_id="r1")
     write_progress(rp, "## Round 1\ncomposite 0.4")
     assert "Round 1" in rp.progress.read_text()
-
-import json, pytest
-from loop_iter.state import (RunPaths, init_state, load_state, write_state, advance_phase)
 
 def test_run_dir_under_self_iterate_runs(tmp_path):
     rp = RunPaths(base=str(tmp_path), run_id="r1")
@@ -66,3 +75,9 @@ def test_advance_phase_refuses_wrong_expected(tmp_path):
     init_state(rp, "g", 3)
     with pytest.raises(RuntimeError, match="phase guard"):
         advance_phase(rp, "eval", "goalcheck")   # state is baseline, not eval
+
+def test_state_file_probe_does_not_create_run_dir(tmp_path):
+    from loop_iter.state import RunPaths
+    rp = RunPaths(base=str(tmp_path), run_id="ghost")
+    assert rp.state_file.exists() is False        # read-only probe
+    assert rp.run_dir.exists() is False           # MUST NOT have created the dir
