@@ -60,13 +60,26 @@ def _goal_check(args):
 
 
 def _setup(args):
-    """Bootstrap a venv at .self-iterate/.venv and install pyyaml + httpx (idempotent)."""
-    venv = Path(args.base, ".self-iterate", ".venv")
-    if not venv.exists():
-        subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
-    pip = str(venv / "bin" / "pip")
-    subprocess.run([pip, "install", "-q", "pyyaml", "httpx"], check=True)
-    print(json.dumps({"venv": str(venv), "deps": ["pyyaml", "httpx"]}))
+    import yaml
+    # Resolve the interpreter: agent.venv (if set + exists) else bootstrap .self-iterate/.venv.
+    venv_dir = None
+    if args.eval:
+        goal_path = Path(args.eval, "goal.yaml")
+        if goal_path.exists():
+            spec = yaml.safe_load(goal_path.read_text()) or {}
+            av = (spec.get("agent") or {}).get("venv")
+            if av and Path(args.base, av, "bin", "python").exists():
+                venv_dir = Path(args.base, av)
+    if venv_dir is None:
+        venv_dir = Path(args.base, ".self-iterate", ".venv")
+        if not venv_dir.exists():
+            subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+    py = str(venv_dir / "bin" / "python")
+    subprocess.run([str(venv_dir / "bin" / "pip"), "install", "-q", "pyyaml", "httpx"], check=True)
+    dotpy = Path(args.base, ".self-iterate", ".python")
+    dotpy.parent.mkdir(parents=True, exist_ok=True)
+    dotpy.write_text(py)
+    print(json.dumps({"python": py, "venv": str(venv_dir), "deps": ["pyyaml", "httpx"]}))
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -117,6 +130,7 @@ def main(argv=None):
     s.set_defaults(func=_goal_check)
 
     s = sub.add_parser("setup")
+    s.add_argument("--eval", default=None, help="eval dir (reads goal.yaml agent.venv)")
     s.add_argument("--base", default=".")
     s.set_defaults(func=_setup)
 

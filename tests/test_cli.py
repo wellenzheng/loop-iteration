@@ -82,3 +82,38 @@ def test_load_dotenv_sets_new_and_does_not_override(tmp_path, monkeypatch):
 def test_load_dotenv_noop_when_absent(tmp_path):
     from loop_iter.cli import _load_dotenv
     _load_dotenv(str(tmp_path / "nope.env"))            # no error, no effect
+
+
+def test_setup_uses_agent_venv_when_set_and_exists(tmp_path):
+    import io, contextlib, sys as _sys
+    from loop_iter.cli import main
+    repo = tmp_path / "repo"; repo.mkdir()
+    # fake agent venv with bin/python + bin/pip (exists() true, pip no-ops)
+    av = repo / ".venv"; (av / "bin").mkdir(parents=True)
+    (av / "bin" / "python").write_text("#!/bin/sh\nexec " + _sys.executable + ' "$@"\n')
+    (av / "bin" / "python").chmod(0o755)
+    (av / "bin" / "pip").write_text("#!/bin/sh\nexit 0\n"); (av / "bin" / "pip").chmod(0o755)
+    ev = repo / ".self-iterate" / "g"; ev.mkdir(parents=True)
+    (ev / "goal.yaml").write_text(
+        "agent:\n  venv: .venv\nthreshold: 0.5\nmax_rounds: 1\nweights: {gates: 1.0}\nregression: block\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["setup", "--eval", str(ev), "--base", str(repo)])
+    dotpy = (repo / ".self-iterate" / ".python").read_text()
+    assert ".venv/bin/python" in dotpy                       # used the agent venv
+    assert ".self-iterate/.venv" not in dotpy                # did NOT bootstrap
+
+
+def test_setup_bootstraps_when_no_agent_venv(tmp_path, monkeypatch):
+    import io, contextlib
+    from loop_iter.cli import main
+    repo = tmp_path / "repo"; repo.mkdir()
+    ev = repo / ".self-iterate" / "g"; ev.mkdir(parents=True)
+    (ev / "goal.yaml").write_text(
+        "threshold: 0.5\nmax_rounds: 1\nweights: {gates: 1.0}\nregression: block\n")
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: None)   # skip real venv/pip
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["setup", "--eval", str(ev), "--base", str(repo)])
+    dotpy = (repo / ".self-iterate" / ".python").read_text()
+    assert ".self-iterate/.venv/bin/python" in dotpy         # bootstrapped path
