@@ -59,15 +59,28 @@ def _goal_check(args):
     raise SystemExit(0 if v["met"] else 1)
 
 
+def _read_agent_venv(goal_path):
+    """Return the agent.venv value from goal.yaml, or None. Uses pyyaml if available,
+    else a minimal line scan — so `setup` works under a python WITHOUT pyyaml (the very
+    first setup runs before the agent venv is recorded, possibly under a bare system python)."""
+    text = goal_path.read_text()
+    try:
+        import yaml
+        spec = yaml.safe_load(text) or {}
+        return (spec.get("agent") or {}).get("venv")
+    except ImportError:
+        import re
+        m = re.search(r'^[ \t]*venv:[ \t]*([^\s#]+)', text, re.M)  # the only `venv:` key (under agent:)
+        return m.group(1) if m else None
+
+
 def _setup(args):
-    import yaml
     # Resolve the interpreter: agent.venv (if set + exists) else bootstrap .self-iterate/.venv.
     venv_dir = None
     if args.eval:
         goal_path = Path(args.eval, "goal.yaml")
         if goal_path.exists():
-            spec = yaml.safe_load(goal_path.read_text()) or {}
-            av = (spec.get("agent") or {}).get("venv")
+            av = _read_agent_venv(goal_path)
             if av and Path(args.base, av, "bin", "python").exists():
                 venv_dir = Path(args.base, av)
     if venv_dir is None:
