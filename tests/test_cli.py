@@ -137,3 +137,28 @@ def test_setup_resolves_agent_venv_without_pyyaml(tmp_path, monkeypatch):
     dotpy = (repo / ".self-iterate" / ".python").read_text()
     assert ".venv/bin/python" in dotpy                       # resolved agent.venv without pyyaml
     assert ".self-iterate/.venv" not in dotpy                # did NOT bootstrap
+
+
+def test_setup_agent_venv_without_pip(tmp_path, monkeypatch):
+    """maas-style: the agent venv (uv-managed) has NO pip at all. setup must still work —
+    it must NOT try to shell out to pip (the deps are the agent owner's responsibility)."""
+    import io, contextlib, sys as _sys
+    from loop_iter.cli import main
+    repo = tmp_path / "repo"; repo.mkdir()
+    av = repo / ".venv"; (av / "bin").mkdir(parents=True)
+    # a python but NO bin/pip and NO pip module (uv venv)
+    (av / "bin" / "python").write_text("#!/bin/sh\nexec " + _sys.executable + ' "$@"\n')
+    (av / "bin" / "python").chmod(0o755)
+    ev = repo / ".self-iterate" / "g"; ev.mkdir(parents=True)
+    (ev / "goal.yaml").write_text(
+        "agent:\n  venv: .venv\nthreshold: 0.5\nmax_rounds: 1\nweights: {gates: 1.0}\nregression: block\n")
+
+    def boom(*a, **k):
+        raise AssertionError("setup must not call subprocess for an agent venv (no pip needed)")
+    monkeypatch.setattr("subprocess.run", boom)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["setup", "--eval", str(ev), "--base", str(repo)])
+    dotpy = (repo / ".self-iterate" / ".python").read_text()
+    assert ".venv/bin/python" in dotpy                       # used the agent venv
+    assert ".self-iterate/.venv" not in dotpy                # did NOT bootstrap

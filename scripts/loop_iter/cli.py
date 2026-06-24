@@ -83,16 +83,23 @@ def _setup(args):
             av = _read_agent_venv(goal_path)
             if av and Path(args.base, av, "bin", "python").exists():
                 venv_dir = Path(args.base, av)
+    bootstrapped = False
     if venv_dir is None:
         venv_dir = Path(args.base, ".self-iterate", ".venv")
         if not venv_dir.exists():
             subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+        bootstrapped = True
     py = str(venv_dir / "bin" / "python")
-    subprocess.run([str(venv_dir / "bin" / "pip"), "install", "-q", "pyyaml", "httpx"], check=True)
+    # Only a freshly-bootstrapped venv needs pyyaml+httpx installed (via `python -m pip`).
+    # An agent's OWN venv (e.g. uv-managed, no pip) is assumed to already have its deps —
+    # don't force-install into it (would fail; and they're the agent owner's responsibility).
+    if bootstrapped:
+        subprocess.run([py, "-m", "pip", "install", "-q", "pyyaml", "httpx"], check=True)
     dotpy = Path(args.base, ".self-iterate", ".python")
     dotpy.parent.mkdir(parents=True, exist_ok=True)
     dotpy.write_text(py)
-    print(json.dumps({"python": py, "venv": str(venv_dir), "deps": ["pyyaml", "httpx"]}))
+    print(json.dumps({"python": py, "venv": str(venv_dir), "bootstrapped": bootstrapped,
+                      "deps": ["pyyaml", "httpx"]}))
 
 
 def _load_dotenv(path: str = ".env") -> None:
