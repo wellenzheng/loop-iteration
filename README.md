@@ -59,7 +59,10 @@ This repo **is** a Claude Code plugin that self-iterates any agent's harness
 Place this repo in your Claude Code plugins dir (or your usual plugin-install path).
 Requires Python 3.11+. Then in any repo:
 ```
-/self-iterate setup        # bootstraps .self-iterate/.venv + pyyaml/httpx (once)
+/self-iterate setup        # picks the right Python: your agent's `agent.venv` if set (has its own
+                           # deps, e.g. zai_adk), else bootstraps .self-iterate/.venv. Records it in
+                           # .self-iterate/.python. The cli also auto-loads .env (OPENAI_* etc.) — no
+                           # manual sourcing.
 ```
 
 ### Use it on your agent
@@ -81,7 +84,7 @@ How each case is run against your agent — declarative, no code for the common 
 |---|---|---|
 | `claude-p` (default) | Claude-Code-native agent | nothing (runs `claude -p` in the worktree) |
 | `command` | agent has a CLI | `cmd` with `{variant_dir}`/`{query}` substituted, e.g. `["python","-m","src.agent.cli","--skills-dir","{variant_dir}","{query}"]` |
-| `python-import` | in-process agent (e.g. maas) | `module` + `entry`; a ~5-line `entry(query, variant_dir, **extra)` shim that loads your agent with `skills_dir=variant_dir` |
+| `python-import` | in-process agent (e.g. maas) | `module` + `entry` + `agent.venv: .venv`; a ~5-line `entry(query, variant_dir, **extra)` shim that loads your agent with `skills_dir=variant_dir` |
 | `custom` / omitted + `run_case.py` | bespoke | a drop-in `run_case.py` |
 
 Example (`command`, zero code if your agent has a CLI):
