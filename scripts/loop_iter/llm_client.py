@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import httpx
 
-def chat(prompt: str, model: str | None = None, timeout: float = 60.0) -> str:
+def chat(prompt: str, model: str | None = None, timeout: float = 120.0) -> str:
     base = os.environ.get("OPENAI_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
     key = os.environ.get("OPENAI_API_KEY", "")
     model = model or os.environ.get("OPENAI_MODEL", "glm-4.7")

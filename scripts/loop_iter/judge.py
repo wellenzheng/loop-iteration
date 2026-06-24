@@ -22,8 +22,10 @@ def judge_case(result: dict, case: dict, judge_md: str, llm_call,
                model: str = "glm-4.7") -> list[dict] | None:
     """Ask the LLM to score the case per the rubric. Returns [{dim, score}] or None.
 
-    None is the gates-only fallback signal (no hand-rolled JSON repair — strict output,
-    one retry, then degrade). llm_call(prompt, model) -> str.
+    None is the gates-only fallback signal — returned on unparseable output (no hand-rolled
+    JSON repair: strict output, one retry, then degrade) AND on any llm_call exception
+    (network/timeout/transport). A flaky judge must never crash the round; it degrades to
+    gates-only for that case. llm_call(prompt, model) -> str.
     """
     prompt = (
         f"{judge_md}\n\n"
@@ -33,7 +35,10 @@ def judge_case(result: dict, case: dict, judge_md: str, llm_call,
         f"Agent output: {result.get('output')}\n"
     )
     for _ in range(2):  # initial + one retry
-        dims = _parse_dims(llm_call(prompt, model))
+        try:
+            dims = _parse_dims(llm_call(prompt, model))
+        except Exception:  # network/timeout/transport -> gates-only, never crash the round
+            dims = None
         if dims is not None:
             return dims
     return None
