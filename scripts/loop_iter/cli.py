@@ -164,10 +164,24 @@ def _baseline(args):
     out = run_cases(cases, args.base, str(ev / "gates.py"),
                     (ev / "judge.md").read_text(), goal["weights"],
                     run_case_fn=rc, llm_call=llm_call)
+    # harness-quality guardrail (opt-in via quality.md)
+    quality_md_path = ev / "quality.md"
+    if quality_md_path.exists():
+        from loop_iter.judge import judge_quality, quality_mean
+        from loop_iter.adapter_generic import harness_text
+        qdims = judge_quality(harness_text(args.eval, args.base, args.base),
+                              quality_md_path.read_text(), llm_call)
+        out["quality"] = quality_mean(qdims)
+        out["quality_dims"] = qdims or []
+    else:
+        out["quality"] = None
+        out["quality_dims"] = []
     rp.baseline_file.write_text(json.dumps(out, indent=2, ensure_ascii=False))
     advance_phase(rp, "baseline", "maker",
-                  updates={"round": 1, "baseline_composite": out["composite"]})
-    print(json.dumps({"baseline_composite": out["composite"], "phase": "maker", "round": 1}))
+                  updates={"round": 1, "baseline_composite": out["composite"],
+                           "baseline_quality": out["quality"]})
+    print(json.dumps({"baseline_composite": out["composite"],
+                      "baseline_quality": out["quality"], "phase": "maker", "round": 1}))
 
 
 def _report(args):

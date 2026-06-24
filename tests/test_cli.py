@@ -508,3 +508,55 @@ def test_e2e_state_machine_full_flow(tmp_path, monkeypatch):
     assert rp.winner_diff.exists() and rp.report_md.exists()
     md = rp.report_md.read_text()
     assert "best round: 2" in md and "met: True" in md
+
+
+def test_cli_baseline_computes_quality_when_quality_md_present(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    (ev / "quality.md").write_text("rubric: be clear")
+    rp = RunPaths(base=str(repo), run_id="r1")
+    main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", lambda *a, **k:
+        {"cases": [], "composite": 0.5, "gate_pass_rates": {}, "judge_means": {}})
+    import loop_iter.judge as jm
+    monkeypatch.setattr(jm, "judge_quality", lambda text, md, llm_call, model="glm-4.7":
+        [{"dim": "clarity", "score": 8.0}])
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    st = load_state(rp)
+    assert st["baseline_quality"] == 8.0
+    import json
+    assert json.loads(rp.baseline_file.read_text())["quality"] == 8.0
+
+
+def test_cli_baseline_skips_quality_when_no_quality_md(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    # NO quality.md
+    rp = RunPaths(base=str(repo), run_id="r1")
+    main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", lambda *a, **k:
+        {"cases": [], "composite": 0.5, "gate_pass_rates": {}, "judge_means": {}})
+    import loop_iter.judge as jm
+    def boom(*a, **k):
+        raise AssertionError("judge_quality must not be called without quality.md")
+    monkeypatch.setattr(jm, "judge_quality", boom)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    assert load_state(rp)["baseline_quality"] is None
