@@ -69,6 +69,28 @@ def append_round(rp: RunPaths, run_scores: dict) -> dict:
     write_scores(rp, data)
     return data
 
+def recompute_best(rp: RunPaths, baseline_quality: float | None, tolerance: float) -> int | None:
+    """Quality-aware best-round selection: exclude quality-regressed rounds (quality below
+    baseline - tolerance), then pick max by (composite, quality). Falls back to all rounds if
+    every round regresses. None quality (no signal) is never regressed. Writes best_round back
+    to scores.json and returns the best round number (or None if no rounds)."""
+    data = _load_raw(rp)
+    rounds = data.get("rounds", [])
+    if not rounds:
+        return None
+
+    def regressed(r):
+        q = r.get("quality")
+        return (baseline_quality is not None and q is not None
+                and q < baseline_quality - tolerance)
+
+    eligible = [r for r in rounds if not regressed(r)] or rounds
+    best = max(eligible, key=lambda r: (r["composite"],
+                                        r["quality"] if r.get("quality") is not None else -1.0))
+    data["best_round"] = best["round"]
+    write_scores(rp, data)
+    return best["round"]
+
 def write_progress(rp: RunPaths, body: str) -> None:
     rp.run_dir.mkdir(parents=True, exist_ok=True)
     rp.progress.write_text(f"# Run {rp.run_id}\n\n{body}\n")

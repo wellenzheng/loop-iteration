@@ -78,3 +78,28 @@ def test_check_and_advance_populates_best_at_done(tmp_path):
     st = load_state(rp)
     assert st["best"]["round"] == 2
     assert st["best"]["composite"] == 0.9
+
+def test_check_and_advance_quality_regression_blocks_met(tmp_path):
+    rp = RunPaths(base=str(tmp_path), run_id="r1"); init_state(rp, "g", 3)
+    write_state(rp, {**load_state(rp), "phase": "goalcheck", "round": 1, "baseline_quality": 8.0})
+    append_round(rp, {"round": 1, "composite": 0.9, "quality": 4.0, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    v = check_and_advance(rp, _goal_yaml(tmp_path, threshold=0.8, max_rounds=3), None)
+    assert v["met"] is False                      # composite 0.9 >= 0.8 BUT quality regressed
+    assert "quality regression" in v["reason"]
+    st = load_state(rp)
+    assert st["phase"] == "maker" and st["round"] == 2   # not met, under cap -> loop
+
+def test_check_and_advance_quality_ok_when_above_baseline(tmp_path):
+    rp = RunPaths(base=str(tmp_path), run_id="r1"); init_state(rp, "g", 3)
+    write_state(rp, {**load_state(rp), "phase": "goalcheck", "round": 1, "baseline_quality": 6.0})
+    append_round(rp, {"round": 1, "composite": 0.9, "quality": 7.0, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    v = check_and_advance(rp, _goal_yaml(tmp_path, threshold=0.8, max_rounds=3), None)
+    assert v["met"] is True                       # composite met AND quality 7.0 >= 6.0-0.5
+    assert load_state(rp)["phase"] == "done"
+
+def test_check_and_advance_no_baseline_quality_skips_guardrail(tmp_path):
+    rp = RunPaths(base=str(tmp_path), run_id="r1"); init_state(rp, "g", 3)
+    write_state(rp, {**load_state(rp), "phase": "goalcheck", "round": 1})  # baseline_quality None
+    append_round(rp, {"round": 1, "composite": 0.9, "quality": 4.0, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    v = check_and_advance(rp, _goal_yaml(tmp_path, threshold=0.8, max_rounds=3), None)
+    assert v["met"] is True                       # no baseline_quality -> guardrail inactive

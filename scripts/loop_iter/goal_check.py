@@ -1,6 +1,6 @@
 from __future__ import annotations
 import yaml
-from loop_iter.state import RunPaths, load_scores, load_state, write_state, _now
+from loop_iter.state import RunPaths, load_scores, load_state, write_state, _now, recompute_best
 
 def check_latest(rp: RunPaths, goal_path: str, best_gate_rates: dict | None) -> dict:
     """Read the latest round's stored composite + gate_pass_rates + goal -> GoalVerdict."""
@@ -32,12 +32,26 @@ def check_latest(rp: RunPaths, goal_path: str, best_gate_rates: dict | None) -> 
 def check_and_advance(rp: RunPaths, goal_path: str, best_gate_rates: dict | None) -> dict:
     """State-machine goal-check: compute verdict, then advance phase.
     met -> done (met=true); not met & round < max_rounds -> maker + round++;
-    not met & round >= max_rounds -> done (met=false). Refuses if phase != goalcheck."""
+    not met & round >= max_rounds -> done (met=false). Refuses if phase != goalcheck.
+    Quality guardrail: if baseline_quality is set and this round's quality regressed below
+    baseline - tolerance, met is forced False (even if composite met). Quality never enters
+    the composite; it only gates met and breaks ties in best selection."""
     goal = yaml.safe_load(open(goal_path))
     st = load_state(rp)
     if st["phase"] != "goalcheck":
         raise RuntimeError(f"phase guard: goalcheck requires phase=goalcheck, got {st['phase']!r}")
     v = check_latest(rp, goal_path, best_gate_rates)
+    # quality guardrail
+    tol = goal.get("quality_tolerance", 0.5)
+    bq = st.get("baseline_quality")
+    rounds = load_scores(rp).get("rounds", [])
+    latest_q = rounds[-1].get("quality") if rounds else None
+    if bq is not None and latest_q is not None and latest_q < bq - tol:
+        if v["met"]:
+            v["met"] = False
+            v["reason"] = (f"quality regression: {latest_q:.2f} < baseline {bq:.2f} "
+                           f"- tol {tol}")
+    # phase transition
     if v["met"]:
         st["met"] = True
         st["phase"] = "done"
@@ -48,13 +62,14 @@ def check_and_advance(rp: RunPaths, goal_path: str, best_gate_rates: dict | None
         st["met"] = False
         st["round"] = st["round"] + 1
         st["phase"] = "maker"
-    if st["phase"] == "done":
-        data = load_scores(rp)
-        rounds = data.get("rounds", [])
-        if rounds:
-            br = max(rounds, key=lambda r: r["composite"])
-            st["best"] = {"round": br["round"], "composite": br["composite"], "worktree": None}
     st["updated_at"] = _now()
     write_state(rp, st)
+    # best selection: quality tiebreak + exclude regressed
+    best_round = recompute_best(rp, bq, tol)
+    if st["phase"] == "done" and best_round is not None:
+        data = load_scores(rp)
+        br = next(r for r in data["rounds"] if r["round"] == best_round)
+        st["best"] = {"round": br["round"], "composite": br["composite"], "worktree": None}
+        write_state(rp, st)
     v["phase"] = st["phase"]
     return v
