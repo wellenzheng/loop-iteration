@@ -64,6 +64,21 @@ def _case_run(args):
                     (ev / "judge.md").read_text(), goal["weights"],
                     run_case_fn=rc, llm_call=llm_call)
     out["round"] = args.round
+    # harness-quality guardrail (opt-in via quality.md); score the VARIANT's harness in the worktree
+    quality_md_path = ev / "quality.md"
+    if quality_md_path.exists():
+        from loop_iter.judge import judge_quality, quality_mean
+        from loop_iter.adapter_generic import harness_text
+        qdims = judge_quality(harness_text(args.eval, args.base, args.worktree),
+                              quality_md_path.read_text(), llm_call)
+        out["quality"] = quality_mean(qdims)
+        out["quality_dims"] = qdims or []
+        if rp.state_file.exists():
+            (rp.run_dir / "quality.json").write_text(
+                json.dumps({"round": args.round, "quality": out["quality"],
+                            "quality_dims": qdims or []}, indent=2, ensure_ascii=False))
+    else:
+        out["quality"] = None
     if rp.state_file.exists():
         append_round(rp, out)
         advance_phase(rp, "eval", "goalcheck")

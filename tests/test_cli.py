@@ -560,3 +560,35 @@ def test_cli_baseline_skips_quality_when_no_quality_md(tmp_path, monkeypatch):
     with contextlib.redirect_stdout(buf):
         main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
     assert load_state(rp)["baseline_quality"] is None
+
+
+def test_cli_case_run_writes_quality_when_quality_md_present(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state, load_scores
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    (ev / "quality.md").write_text("rubric: be clear")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    import loop_iter.state as stmod
+    st = stmod.load_state(rp); st["phase"] = "eval"; st["round"] = 1; stmod.write_state(rp, st)
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", lambda *a, **k:
+        {"cases": [], "composite": 0.9, "gate_pass_rates": {}, "judge_means": {}})
+    import loop_iter.judge as jm
+    monkeypatch.setattr(jm, "judge_quality", lambda text, md, llm_call, model="glm-4.7":
+        [{"dim": "clarity", "score": 7.0}])
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["case-run", "--eval", str(ev), "--worktree", str(repo),
+              "--run-id", "r1", "--base", str(repo), "--round", "1"])
+    # quality.json written
+    import json
+    q = json.loads((rp.run_dir / "quality.json").read_text())
+    assert q["round"] == 1 and q["quality"] == 7.0
+    # round entry in scores.json carries quality
+    assert load_scores(rp)["rounds"][-1]["quality"] == 7.0
+    assert load_state(rp)["phase"] == "goalcheck"
