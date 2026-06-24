@@ -13,7 +13,18 @@ def _git(repo: str, *args: str) -> str:
 def apply_variant(repo_root: str, baseline_ref: str, agent_subdir: str) -> str:
     """Create a detached worktree of repo_root at baseline_ref. The maker edits
     <worktree>/<agent_subdir> there; the source repo is never mutated mid-loop.
-    Returns the worktree path."""
+    Returns the worktree path.
+
+    Refuses if repo_root is not the root of a git repo: `git -C <subdir> worktree add`
+    would otherwise silently create a worktree of the *parent* repo, breaking harness
+    relative paths (the worktree root would be the parent's tree, not repo_root's)."""
+    toplevel = _git(repo_root, "rev-parse", "--show-toplevel")
+    if Path(toplevel).resolve() != Path(repo_root).resolve():
+        raise RuntimeError(
+            f"--base {repo_root!r} must be the root of a git repo, but it is inside "
+            f"{toplevel!r}. Run /self-iterate from the agent's own repo root "
+            f"(or `git init` one if needed)."
+        )
     wt = tempfile.mkdtemp(prefix="loopiter_wt_")
     shutil.rmtree(wt)  # mkdtemp created the dir; worktree add needs a non-existent path
     _git(repo_root, "worktree", "add", "--detach", wt, baseline_ref)

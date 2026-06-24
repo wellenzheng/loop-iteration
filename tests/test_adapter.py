@@ -41,3 +41,33 @@ def test_remove_worktree_cleans_up(tmp_path):
     wt = apply_variant(str(repo), "HEAD", "agent_files")
     remove_worktree(wt)
     assert not Path(wt).exists()
+
+
+def _commit(repo, msg):
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+           "PATH": __import__("os").environ["PATH"]}
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", msg], cwd=repo, env=env, check=True)
+
+
+def test_apply_variant_refuses_when_base_is_not_repo_root(tmp_path):
+    """If --base is a subdir of a git repo (not the repo root), apply_variant must
+    refuse instead of silently creating a worktree of the parent repo (which would
+    break harness relative paths). Discovered by dogfooding toy in-place."""
+    import pytest
+    repo = _repo(tmp_path)
+    sub = repo / "subdir"
+    sub.mkdir()
+    (sub / "CLAUDE.md").write_text("x")
+    _commit(repo, "add subdir")
+    with pytest.raises(RuntimeError, match="must be the root of a git repo"):
+        apply_variant(repo_root=str(sub), baseline_ref="HEAD", agent_subdir=".")
+
+
+def test_apply_variant_refuses_when_base_not_in_any_repo(tmp_path):
+    import pytest
+    nowhere = tmp_path / "nowhere"
+    nowhere.mkdir()
+    with pytest.raises(RuntimeError):
+        apply_variant(repo_root=str(nowhere), baseline_ref="HEAD", agent_subdir=".")

@@ -16,7 +16,10 @@ from pathlib import Path
 def _apply_variant(args):
     from loop_iter.adapter import apply_variant
     from loop_iter.adapter_generic import resolve_harness
-    wt = apply_variant(repo_root=args.base, baseline_ref=args.baseline, agent_subdir=".")
+    try:
+        wt = apply_variant(repo_root=args.base, baseline_ref=args.baseline, agent_subdir=".")
+    except RuntimeError as e:
+        raise SystemExit(str(e))
     harness = resolve_harness(args.eval, args.base)
     print(json.dumps({"worktree": wt, "harness": harness}))
 
