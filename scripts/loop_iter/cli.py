@@ -77,7 +77,10 @@ def _goal_check(args):
     best = json.loads(args.best_gate_rates) if args.best_gate_rates else None
     goal_path = str(Path(args.eval, "goal.yaml"))
     if rp.state_file.exists():
-        v = check_and_advance(rp, goal_path, best)
+        try:
+            v = check_and_advance(rp, goal_path, best)
+        except RuntimeError as e:
+            raise SystemExit(str(e))
     else:
         v = check_latest(rp, goal_path, best)
     print(json.dumps(v, indent=2))

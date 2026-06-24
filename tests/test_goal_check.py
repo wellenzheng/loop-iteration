@@ -67,3 +67,14 @@ def test_check_and_advance_refuses_wrong_phase(tmp_path):
     # phase is still baseline
     with pytest.raises(RuntimeError, match="phase guard"):
         check_and_advance(rp, _goal_yaml(tmp_path), None)
+
+def test_check_and_advance_populates_best_at_done(tmp_path):
+    rp = RunPaths(base=str(tmp_path), run_id="r1"); init_state(rp, "g", 3)
+    write_state(rp, {**load_state(rp), "phase": "goalcheck", "round": 2})
+    append_round(rp, {"round": 1, "composite": 0.5, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    append_round(rp, {"round": 2, "composite": 0.9, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    v = check_and_advance(rp, _goal_yaml(tmp_path, threshold=0.95, max_rounds=2), None)  # not met, at cap -> done
+    assert v["met"] is False
+    st = load_state(rp)
+    assert st["best"]["round"] == 2
+    assert st["best"]["composite"] == 0.9

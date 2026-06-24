@@ -48,6 +48,12 @@ def check_and_advance(rp: RunPaths, goal_path: str, best_gate_rates: dict | None
         st["met"] = False
         st["round"] = st["round"] + 1
         st["phase"] = "maker"
+    if st["phase"] == "done":
+        data = load_scores(rp)
+        rounds = data.get("rounds", [])
+        if rounds:
+            br = max(rounds, key=lambda r: r["composite"])
+            st["best"] = {"round": br["round"], "composite": br["composite"], "worktree": None}
     st["updated_at"] = _now()
     write_state(rp, st)
     v["phase"] = st["phase"]

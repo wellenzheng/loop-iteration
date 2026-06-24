@@ -1,5 +1,6 @@
 import json, subprocess, io, contextlib
 from pathlib import Path
+import pytest
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -420,3 +421,90 @@ def test_cli_report_refuses_no_rounds(tmp_path):
         assert False, "should refuse"
     except SystemExit as e:
         assert "no rounds" in str(e)
+
+
+def test_cli_goal_check_wrong_phase_exits_cleanly(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state, write_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    st = load_state(rp); st["phase"] = "eval"; write_state(rp, st)   # wrong phase for goalcheck
+    try:
+        main(["goal-check", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+        assert False, "should exit"
+    except SystemExit as e:
+        assert "phase guard" in str(e)
+    except RuntimeError:
+        assert False, "cli must convert RuntimeError to SystemExit"
+
+
+def test_e2e_state_machine_full_flow(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    from loop_iter.adapter import remove_worktree
+    repo = _repo(tmp_path)   # CLAUDE.md = "baseline"
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 2\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    rp = RunPaths(base=str(repo), run_id="e2e")
+    # stub run_cases: round 1 composite 0.5 (not met), round 2 composite 0.9 (met).
+    # NOTE: baseline ALSO calls run_cases (call #1), so round-1 case-run is call #2,
+    # round-2 case-run is call #3.
+    calls = {"n": 0}
+    def fake_run_cases(cases, worktree, gates_path, judge_md, weights, run_case_fn, judge_case_fn=None, llm_call=None):
+        calls["n"] += 1
+        comp = 0.5 if calls["n"] <= 2 else 0.9
+        return {"cases": [], "composite": comp, "gate_pass_rates": {"x": 1.0}, "judge_means": {}}
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", fake_run_cases)
+
+    def call(*argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            main(list(argv))
+        return buf.getvalue()
+
+    # init + baseline
+    call("init", "--goal", "g", "--eval", str(ev), "--run-id", "e2e", "--base", str(repo))
+    call("baseline", "--eval", str(ev), "--run-id", "e2e", "--base", str(repo))
+    assert load_state(rp)["phase"] == "maker"
+    assert load_state(rp)["round"] == 1
+
+    # round 1: maker edits the worktree harness, snapshot, case-run, goal-check (not met -> round 2)
+    wt = json.loads(call("apply-variant", "--eval", str(ev), "--base", str(repo)))["worktree"]
+    Path(wt, "CLAUDE.md").write_text("round1")
+    call("snapshot", "--eval", str(ev), "--worktree", wt,
+         "--dest", str(rp.variants_dir / "round_1"), "--base", str(repo), "--run-id", "e2e")
+    assert load_state(rp)["phase"] == "eval"
+    call("case-run", "--eval", str(ev), "--worktree", wt, "--run-id", "e2e", "--base", str(repo), "--round", "1")
+    assert load_state(rp)["phase"] == "goalcheck"
+    with pytest.raises(SystemExit) as ei:
+        call("goal-check", "--eval", str(ev), "--run-id", "e2e", "--base", str(repo))
+    assert ei.value.code == 1   # not met -> exit 1
+    st = load_state(rp)
+    assert st["phase"] == "maker" and st["round"] == 2   # looped to round 2
+    remove_worktree(wt)
+
+    # round 2: met -> done
+    wt2 = json.loads(call("apply-variant", "--eval", str(ev), "--base", str(repo)))["worktree"]
+    Path(wt2, "CLAUDE.md").write_text("round2-wins")
+    call("snapshot", "--eval", str(ev), "--worktree", wt2,
+         "--dest", str(rp.variants_dir / "round_2"), "--base", str(repo), "--run-id", "e2e")
+    call("case-run", "--eval", str(ev), "--worktree", wt2, "--run-id", "e2e", "--base", str(repo), "--round", "2")
+    with pytest.raises(SystemExit) as ei2:
+        call("goal-check", "--eval", str(ev), "--run-id", "e2e", "--base", str(repo))
+    assert ei2.value.code == 0   # met -> exit 0
+    st = load_state(rp)
+    assert st["phase"] == "done" and st["met"] is True
+    assert st["best"]["round"] == 2 and st["best"]["composite"] == 0.9   # Fix 1
+    remove_worktree(wt2)
+
+    # report
+    call("report", "--eval", str(ev), "--run-id", "e2e", "--base", str(repo))
+    assert rp.winner_diff.exists() and rp.report_md.exists()
+    md = rp.report_md.read_text()
+    assert "best round: 2" in md and "met: True" in md
