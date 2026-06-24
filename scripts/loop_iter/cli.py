@@ -69,7 +69,22 @@ def _setup(args):
     print(json.dumps({"venv": str(venv), "deps": ["pyyaml", "httpx"]}))
 
 
+def _load_dotenv(path: str = ".env") -> None:
+    """Load KEY=VALUE from .env into os.environ via setdefault (explicit env wins).
+    Shell-safe python parse (zsh `source` chokes on some .env lines). No-op if absent."""
+    p = Path(path)
+    if not p.exists():
+        return
+    for line in p.read_text().splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        k, v = s.split("=", 1)
+        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
 def main(argv=None):
+    _load_dotenv()
     ap = argparse.ArgumentParser(prog="python -m loop_iter.cli")
     sub = ap.add_subparsers(dest="cmd", required=True)
 

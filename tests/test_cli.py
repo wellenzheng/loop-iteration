@@ -62,3 +62,23 @@ def test_cli_snapshot_copies_harness_from_worktree(tmp_path):
     assert out["files"] == ["CLAUDE.md"]
     assert (dest / "CLAUDE.md").read_text() == "round1-edited"
     remove_worktree(wt)
+
+
+import os
+
+def test_load_dotenv_sets_new_and_does_not_override(tmp_path, monkeypatch):
+    from loop_iter.cli import _load_dotenv
+    env = tmp_path / ".env"
+    env.write_text("# comment\n\nNEWKEY=fromfile\nEXISTING=fromfile\nQUOTED=\"q\"\nNOEQ\n")
+    monkeypatch.setenv("EXISTING", "explicit")          # pre-set must win
+    _load_dotenv(str(env))
+    assert os.environ["NEWKEY"] == "fromfile"           # loaded
+    assert os.environ["EXISTING"] == "explicit"         # NOT overridden (setdefault)
+    assert os.environ["QUOTED"] == "q"                  # quotes stripped
+    for k in ("NEWKEY", "QUOTED"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_load_dotenv_noop_when_absent(tmp_path):
+    from loop_iter.cli import _load_dotenv
+    _load_dotenv(str(tmp_path / "nope.env"))            # no error, no effect
