@@ -28,6 +28,18 @@ def resolve_harness(eval_dir: str, repo_root: str) -> list[str]:
     return sorted(out)
 
 
+def harness_text(eval_dir: str, repo_root: str, read_root: str) -> str:
+    """Concatenate the harness files (resolved against repo_root) read from read_root, each headed
+    with `### <rel>`. Used to feed the quality-judge. Missing files are skipped."""
+    harness = resolve_harness(eval_dir, repo_root)
+    parts = []
+    for rel in harness:
+        p = Path(read_root, rel)
+        if p.exists():
+            parts.append(f"### {rel}\n{p.read_text()}")
+    return "\n\n".join(parts)
+
+
 import shutil
 import subprocess
 import importlib.util

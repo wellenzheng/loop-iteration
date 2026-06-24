@@ -42,3 +42,35 @@ def judge_case(result: dict, case: dict, judge_md: str, llm_call,
         if dims is not None:
             return dims
     return None
+
+
+def quality_mean(dims: list[dict] | None) -> float | None:
+    """Mean dim score (0-10), or None if no dims (gates-only / degraded signal)."""
+    if not dims:
+        return None
+    return sum(d["score"] for d in dims) / len(dims)
+
+
+def judge_quality(harness_text: str, quality_md: str, llm_call,
+                  model: str = "glm-4.7") -> list[dict] | None:
+    """Ask the LLM to score the harness FILES per the quality rubric. Returns [{dim, score}] or None.
+
+    Same degrade-to-None contract as judge_case: unparseable output (strict JSON, one retry, then
+    degrade) AND any llm_call exception -> None. A flaky quality-judge never crashes the round; the
+    guardrail simply goes inactive (treated as no quality signal) for that round. No rubric -> None
+    without calling the LLM. llm_call(prompt, model) -> str."""
+    if not quality_md:
+        return None
+    prompt = (
+        f"{quality_md}\n\n"
+        f"Return ONLY strict JSON: {{\"dims\": [{{\"dim\": <name>, \"score\": <0-10>}}]}}.\n"
+        f"Harness files (concatenated):\n{harness_text}\n"
+    )
+    for _ in range(2):  # initial + one retry
+        try:
+            dims = _parse_dims(llm_call(prompt, model))
+        except Exception:  # network/timeout/transport -> degrade, never crash
+            dims = None
+        if dims is not None:
+            return dims
+    return None
