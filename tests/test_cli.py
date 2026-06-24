@@ -317,3 +317,52 @@ def test_cli_case_run_advances_eval_to_goalcheck_inside_run(tmp_path, monkeypatc
         main(["case-run", "--eval", str(ev), "--worktree", str(repo),
               "--run-id", "r1", "--base", str(repo), "--round", "1"])
     assert load_state(rp)["phase"] == "goalcheck"
+
+
+def test_cli_snapshot_refuses_wrong_phase(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.adapter import remove_worktree
+    from loop_iter.state import RunPaths, init_state, load_state, write_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    st = load_state(rp); st["phase"] = "eval"; write_state(rp, st)   # wrong phase for snapshot
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["apply-variant", "--eval", str(ev), "--base", str(repo)])
+    wt = json.loads(buf.getvalue())["worktree"]
+    try:
+        main(["snapshot", "--eval", str(ev), "--worktree", wt,
+              "--dest", str(tmp_path / "snap"), "--base", str(repo), "--run-id", "r1"])
+        assert False, "should refuse"
+    except SystemExit as e:
+        assert "phase guard" in str(e) and "maker" in str(e)
+    assert load_state(rp)["phase"] == "eval"   # unchanged
+    remove_worktree(wt)
+
+
+def test_cli_case_run_refuses_wrong_phase(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state, write_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    st = load_state(rp); st["phase"] = "goalcheck"; write_state(rp, st)   # wrong phase for case-run
+    import loop_iter.case_runner as cr
+    def boom(*a, **k):
+        raise AssertionError("run_cases must NOT be called when phase guard refuses")
+    monkeypatch.setattr(cr, "run_cases", boom)
+    try:
+        main(["case-run", "--eval", str(ev), "--worktree", str(repo),
+              "--run-id", "r1", "--base", str(repo), "--round", "1"])
+        assert False, "should refuse"
+    except SystemExit as e:
+        assert "phase guard" in str(e) and "eval" in str(e)
+    assert load_state(rp)["phase"] == "goalcheck"   # unchanged
+    # and scores.json must NOT have been written (guard refused before append_round)
+    assert not rp.scores.exists()

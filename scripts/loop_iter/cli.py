@@ -45,21 +45,27 @@ def _case_run(args):
     goal = yaml.safe_load((ev / "goal.yaml").read_text())
     cases = json.loads((ev / "cases.json").read_text())
     harness = resolve_harness(args.eval, args.base)
+    rp = RunPaths(base=args.base, run_id=args.run_id)
+    # state-machine: guard eval -> goalcheck BEFORE the expensive run_cases AND before
+    # append_round. Guarding first means a wrong-phase refusal leaves scores.json untouched
+    # (no inconsistent-state window where scores.json has an extra round but state didn't
+    # advance) and skips the costly case evaluation entirely.
+    if rp.state_file.exists():
+        from loop_iter.state import load_state, advance_phase
+        st = load_state(rp)
+        if st["phase"] != "eval":
+            raise SystemExit(f"phase guard: case-run requires phase=eval, got {st['phase']}")
     rc = build_run_case(args.eval, goal.get("agent", {}), harness)
     from loop_iter.llm_client import chat as llm_call
     out = run_cases(cases, args.worktree, str(ev / "gates.py"),
                     (ev / "judge.md").read_text(), goal["weights"],
                     run_case_fn=rc, llm_call=llm_call)
     out["round"] = args.round
-    rp = RunPaths(base=args.base, run_id=args.run_id)
-    append_round(rp, out)
-    # state-machine: advance eval -> goalcheck (only inside an active run)
     if rp.state_file.exists():
-        from loop_iter.state import load_state, advance_phase
-        st = load_state(rp)
-        if st["phase"] != "eval":
-            raise SystemExit(f"phase guard: case-run requires phase=eval, got {st['phase']}")
+        append_round(rp, out)
         advance_phase(rp, "eval", "goalcheck")
+    else:
+        append_round(rp, out)
     print(json.dumps({"round": args.round, "composite": out["composite"],
                       "gate_pass_rates": out["gate_pass_rates"]}))
 
