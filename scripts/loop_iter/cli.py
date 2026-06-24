@@ -176,15 +176,20 @@ def _report(args):
     if not rounds:
         raise SystemExit("report: no rounds recorded")
     best_round = data.get("best_round") or rounds[-1]["round"]
-    best = next(r for r in rounds if r["round"] == best_round)
+    best = next((r for r in rounds if r["round"] == best_round), None)
+    if best is None:
+        raise SystemExit(f"report: best_round {best_round} not found in recorded rounds")
     snap_dir = rp.variants_dir / f"round_{best_round}"
     harness = resolve_harness(args.eval, args.base)
     diff_lines: list[str] = []
     for rel in harness:
         base_path = Path(args.base, rel)
         snap_path = snap_dir / rel
+        if not snap_path.exists():
+            print(f"warning: no snapshot for {rel} at round {best_round}; skipping", file=sys.stderr)
+            continue
         base_lines = base_path.read_text().splitlines(keepends=True) if base_path.exists() else []
-        snap_lines = snap_path.read_text().splitlines(keepends=True) if snap_path.exists() else []
+        snap_lines = snap_path.read_text().splitlines(keepends=True)
         diff_lines.extend(difflib.unified_diff(
             base_lines, snap_lines,
             fromfile=f"baseline/{rel}", tofile=f"round_{best_round}/{rel}"))

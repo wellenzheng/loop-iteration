@@ -390,6 +390,24 @@ def test_cli_report_writes_diff_and_md(tmp_path):
     assert "best round: 1" in md
     assert "composite 0.900" in md
 
+def test_cli_report_skips_missing_snapshot(tmp_path, capsys):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, append_round
+    repo = _repo(tmp_path)   # CLAUDE.md = "baseline"
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    append_round(rp, {"round": 1, "composite": 0.9, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    # NO snapshot written for round_1/CLAUDE.md -> must be skipped, not faked as a deletion
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["report", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    diff = rp.winner_diff.read_text()
+    assert "-baseline" not in diff          # no fake whole-file deletion
+    err = capsys.readouterr().err
+    assert "no snapshot for CLAUDE.md" in err   # warning emitted
+
+
 def test_cli_report_refuses_no_rounds(tmp_path):
     from loop_iter.cli import main
     from loop_iter.state import RunPaths, init_state
