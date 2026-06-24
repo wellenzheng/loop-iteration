@@ -72,6 +72,26 @@ In your agent's repo, write the only thing you need — an eval spec:
   judge.md      # your LLM-rubric dims
   # optional run_case.py — escape hatch for non-Claude-CLI agents (e.g. a service)
 ```
+
+#### Adapter type (`agent.type` in goal.yaml)
+
+How each case is run against your agent — declarative, no code for the common cases:
+
+| type | when | what you provide |
+|---|---|---|
+| `claude-p` (default) | Claude-Code-native agent | nothing (runs `claude -p` in the worktree) |
+| `command` | agent has a CLI | `cmd` with `{variant_dir}`/`{query}` substituted, e.g. `["python","-m","src.agent.cli","--skills-dir","{variant_dir}","{query}"]` |
+| `python-import` | in-process agent (e.g. maas) | `module` + `entry`; a ~5-line `entry(query, variant_dir, **extra)` shim that loads your agent with `skills_dir=variant_dir` |
+| `custom` / omitted + `run_case.py` | bespoke | a drop-in `run_case.py` |
+
+Example (`command`, zero code if your agent has a CLI):
+
+```yaml
+agent:
+  type: command
+  cmd: ["python", "-m", "my_agent", "--skills-dir", "{variant_dir}", "{query}"]
+  variant_subdir: skills
+```
 Then:
 ```
 /self-iterate toward <goal>
