@@ -32,7 +32,7 @@ This spec closes both gaps:
 | D5 | **harness quality is a guardrail + tiebreak, NOT a main objective.** A `quality.md` rubric judges the harness files themselves; scored in parallel with case-eval each round. Quality regression below baseline (− tolerance) rejects the variant even if eval score rose; ties between variants broken by quality. Quality does not enter the composite. | A harness can game gates while getting messier (hardcoding answers). Modeling quality as a constraint prevents optimizing for pretty prompts at the cost of task performance; it also naturally penalizes overfitting. |
 | D6 | **Run output moves from `.loop/iterate/<run_id>/` to `.self-iterate/runs/<run_id>/`.** Input spec stays at `.self-iterate/<goal>/`. | User requirement: all produced artifacts persist under `.self-iterate/`. Input vs output are still separated by subdirectory. |
 | D7 | **No parallel candidate variants; no early-stop.** Single variant per round. | YAGNI until single-variant loop is proven. |
-| D8 | **`report` cli subcommand** emits `git diff baseline..winner` (harness files only) + a markdown report (baseline→final, per-round progression, gate pass rates, quality progression, what the maker changed). Run automatically at `done`; also callable manually. | Directly serves "产出 diff 和报告"; serves the doctrine's "read what the loop made". |
+| D8 | **A real-time interactive HTML dashboard is the primary report; a static `report.md` + `winner.diff` are kept as offline archive.** A new cli `dashboard` subcommand serves a stdlib HTTP server that watches the run dir; the page polls `/api/state` and re-renders live as the state machine writes each phase. Five panels: live progress, results overview, quality ratings, case comparison, diff. Read-only view over the state machine's writes — never drives the loop. | Directly serves "实时进度/结果总揽/diff/规范评级/优化case对比"; the state machine already writes everything to disk, so the dashboard is a pure view — clean separation, dashboard crashes cannot affect loop guarantees. |
 
 ## 3. Architecture
 
@@ -126,13 +126,36 @@ Per-round artifacts: `scores.json`, `quality.json`, `variants/round_<N>/` (harne
 `.loop/...` paths are updated. (`.loop/progress.md` — the project's own dev spine — is unchanged; that is
 the loop-iteration repo's state, separate from a target agent's run state.)
 
-### 3.7 Report (D8)
+### 3.7 Report: real-time dashboard + static archive (D8)
 
-New cli subcommand `report --eval <goal> --run-id <id>`:
-- `git diff <baseline_ref>..<best_worktree>` scoped to the harness files → `winner.diff`.
-- Markdown `report.md`: baseline → best composite, per-round composite + gate pass rates + quality,
-  whether `met`, which round won, and a summary of what the maker changed (from the snapshots).
-- Run automatically when `goalcheck` transitions to `done`; also callable manually on a finished run.
+**Real-time dashboard** — new cli subcommand `dashboard --eval <goal> --run-id <id>`:
+- A stdlib-only `http.server` (no external deps, offline-capable) that watches
+  `.self-iterate/runs/<run_id>/` and serves a single-page app (`index.html` + vanilla JS, no build step)
+  plus a `/api/state` endpoint that merges `state.json` + `baseline.json` + each round's
+  `scores.json`/`quality.json`/snapshot into one payload.
+- The page polls `/api/state` every 1–2s and re-renders. (SSE deferred — polling is stdlib-simple and
+  sub-second-to-few-seconds lag is fine for a loop whose phases take seconds-to-minutes.)
+- `/self-iterate start` launches this server in the background and prints `http://localhost:<port>` so
+  the user watches the loop run live. Also callable manually on a finished run to browse history.
+- **The dashboard is read-only.** It never writes state or drives the loop — the state machine + skill
+  do that. Dashboard crashes/lag cannot affect loop guarantees.
+
+Five panels (the user's named requirements + the demo's preserved elements):
+
+| Panel | Source | Content |
+|---|---|---|
+| Live progress | `state.json` | current phase / round / max_rounds, `met`, phase timeline |
+| Results overview | `baseline.json` + `best` + per-round `scores.json` | baseline→best composite, gate pass rates, `met` status, **per-round trajectory chart** (composite / gate / quality) |
+| Quality ratings | per-round `quality.json` | per-round quality + rubric dims, guardrail threshold line, regression flag |
+| Case comparison | per-round `scores.json` per-case outputs | pick a case → baseline vs chosen round's output, side by side |
+| Diff | `winner.diff` + snapshots | per-file, line-level highlighted diff of the harness changes |
+
+Layout: wide multi-panel (demo's preserved layout) — top overview/progress bar, lower region split into
+the comparison / chart / diff panels.
+
+**Static archive** — at `done`, also write `report.md` (baseline→best, per-round progression, gate pass
+rates, quality, `met`, winning round, maker change summary) and `winner.diff` (`git diff
+<baseline_ref>..<best_worktree>` scoped to harness files) into the run dir, for offline/PR use.
 
 ## 4. Implementation mapping, tests, scope
 
@@ -143,12 +166,16 @@ New cli subcommand `report --eval <goal> --run-id <id>`:
 - `commands/self-iterate.md` — add `setup` and `start` subcommands; keep `toward` as alias.
 - `skills/self-iterate/SKILL.md` — rewrite from "one round only" to "state-machine-driven loop": read
   `state.json`, execute current phase, advance, repeat until `done`.
-- `scripts/loop_iter/cli.py` — add `baseline`, `report`, and a `state`/`advance` helper; teach each
-  subcommand to check + advance `state.json` phase; `goal-check` enforces `max_rounds` + regression.
+- `scripts/loop_iter/cli.py` — add `baseline`, `dashboard`, `report`, and a `state`/`advance` helper;
+  teach each subcommand to check + advance `state.json` phase; `goal-check` enforces `max_rounds` +
+  regression.
 - `scripts/loop_iter/state.py` — `RunPaths` → `.self-iterate/runs/<run_id>/`; add `state.json`
   read/write + phase-transition guards + idempotency.
 - `scripts/loop_iter/goal_check.py` — quality guardrail + tiebreak; `max_rounds` cap forces `done`.
 - `scripts/loop_iter/judge.py` (or a sibling) — quality-judge path (rubric on harness files).
+- `scripts/loop_iter/dashboard.py` (new) — stdlib `http.server` watching the run dir; `/api/state`
+  merger; serves the SPA from `scripts/loop_iter/dashboard_assets/` (`index.html` + vanilla JS +
+  inline-SVG charts, no build step).
 - `examples/toy/.self-iterate/toy-basic/` — add `quality.md`; become the template `setup` proposes from.
 
 **Tests (TDD), new + updated:****
@@ -157,6 +184,10 @@ New cli subcommand `report --eval <goal> --run-id <id>`:
   `state.json` after a simulated stall.
 - `cli.py baseline`: writes `baseline.json` + populates `state.baseline_*`; refuses if `phase != baseline`.
 - `cli.py report`: emits `winner.diff` (scoped to harness) + `report.md`; refuses if no rounds.
+- `cli.py dashboard`: stdlib server serves `index.html` + `/api/state`; `/api/state` merges
+  state+baseline+per-round scores/quality/snapshot; poll returns updated data after a simulated phase
+  write; read-only (no state writes from any endpoint); `start` background-launches it and prints the
+  URL.
 - `goal_check.py`: met = composite ≥ threshold AND no gate regression AND quality ≥
   baseline−tolerance; `round >= max_rounds` & not met → `done` with `met=false`; tiebreak prefers
   higher quality.
@@ -168,9 +199,10 @@ New cli subcommand `report --eval <goal> --run-id <id>`:
 **Scope (YAGNI):**
 - In: `setup` skill; state-machine loop + phase enforcement + resume/idempotency; baseline step;
   quality guardrail + tiebreak; `.self-iterate/runs/` migration; `report` (diff + md); `quality.md`
-  template.
+  template; real-time dashboard (stdlib server + SPA + 5 panels).
 - Out (deferred): `/loop` watchdog for walk-away; parallel candidate variants (tournament); early-stop
-  on plateau; Windows venv layout; auto-detection of `.venv`.
+  on plateau; SSE/streaming dashboard updates (polling first); Windows venv layout; auto-detection of
+  `.venv`.
 
 ## 5. Risks
 
