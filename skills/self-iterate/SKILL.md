@@ -12,25 +12,31 @@ You run exactly one round, in the user's current repo (cwd). The broader loop is
 - `run_id` — current run id. `round` — this round's number (1-based).
 
 ## One round
+**Interpreter.** The cli must run under the agent's own Python (so `python-import` shims find their deps). Use the interpreter recorded by `/self-iterate setup`:
+```
+PY=$(cat .self-iterate/.python 2>/dev/null || echo python)
+```
+Use `"$PY"` for every cli call below.
+
 1. **Stage the variant.** Resolve a worktree + harness paths via the bundled CLI (path is relative to this plugin's root):
    ```
-   python <plugin-root>/scripts/loop_iter/cli.py apply-variant --eval .self-iterate/<goal> --baseline HEAD
+   "$PY" <plugin-root>/scripts/loop_iter/cli.py apply-variant --eval .self-iterate/<goal> --baseline HEAD
    ```
    Read the printed JSON: `{worktree, harness}`. `harness` is the list of files the maker may edit.
 2. **Maker.** Dispatch the `harness-rewriter` agent with `worktree`, `harness` (the paths), and last round's findings (round 1: "cold start — sharpen the baseline harness to satisfy the gates"). It edits only files in `harness`.
 3. **Checker.** Dispatch the `case-evaluator` skill on the worktree. It runs:
    ```
-   python <plugin-root>/scripts/loop_iter/cli.py case-run --eval .self-iterate/<goal> --worktree <worktree> --run-id <run_id> --round <round>
+   "$PY" <plugin-root>/scripts/loop_iter/cli.py case-run --eval .self-iterate/<goal> --worktree <worktree> --run-id <run_id> --round <round>
    ```
    which writes this round's RunScores into `.loop/iterate/<run_id>/scores.json` and returns failing gates + weak dims.
 4. **Snapshot + state.** Snapshot the variant's harness files into `.loop/iterate/<run_id>/variants/round_<N>/` (provenance):
    ```
-   python <plugin-root>/scripts/loop_iter/cli.py snapshot --eval .self-iterate/<goal> --worktree <worktree> --dest .loop/iterate/<run_id>/variants/round_<N>
+   "$PY" <plugin-root>/scripts/loop_iter/cli.py snapshot --eval .self-iterate/<goal> --worktree <worktree> --dest .loop/iterate/<run_id>/variants/round_<N>
    ```
    Append a one-line summary to `.loop/iterate/<run_id>/progress.md`.
 5. **Stop-condition handoff.** Run the goal-checker:
    ```
-   python <plugin-root>/scripts/loop_iter/cli.py goal-check --eval .self-iterate/<goal> --run-id <run_id> [--best-gate-rates '<json>']
+   "$PY" <plugin-root>/scripts/loop_iter/cli.py goal-check --eval .self-iterate/<goal> --run-id <run_id> [--best-gate-rates '<json>']
    ```
    Exit 0 = met (stop, surface the best variant); exit 1 = not met (return findings; run-until-done fires the next round).
 
