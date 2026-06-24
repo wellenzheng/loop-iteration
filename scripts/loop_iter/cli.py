@@ -102,6 +102,41 @@ def _setup(args):
                       "deps": ["pyyaml", "httpx"]}))
 
 
+def _init(args):
+    import yaml
+    from loop_iter.state import RunPaths, init_state
+    goal_path = Path(args.eval, "goal.yaml")
+    spec = yaml.safe_load(goal_path.read_text())
+    rp = RunPaths(base=args.base, run_id=args.run_id)
+    st = init_state(rp, args.goal, spec["max_rounds"])
+    print(json.dumps({"run_id": args.run_id, "phase": st["phase"], "max_rounds": st["max_rounds"]}))
+
+
+def _baseline(args):
+    import yaml
+    from loop_iter.state import RunPaths, load_state, advance_phase
+    from loop_iter.case_runner import run_cases
+    from loop_iter.adapter_generic import resolve_harness, build_run_case
+    from loop_iter.llm_client import chat as llm_call
+    rp = RunPaths(base=args.base, run_id=args.run_id)
+    rp.run_dir.mkdir(parents=True, exist_ok=True)
+    st = load_state(rp)
+    if st["phase"] != "baseline":
+        raise SystemExit(f"phase guard: baseline requires phase=baseline, got {st['phase']}")
+    ev = Path(args.eval)
+    goal = yaml.safe_load((ev / "goal.yaml").read_text())
+    cases = json.loads((ev / "cases.json").read_text())
+    harness = resolve_harness(args.eval, args.base)
+    rc = build_run_case(args.eval, goal.get("agent", {}), harness)
+    out = run_cases(cases, args.base, str(ev / "gates.py"),
+                    (ev / "judge.md").read_text(), goal["weights"],
+                    run_case_fn=rc, llm_call=llm_call)
+    rp.baseline_file.write_text(json.dumps(out, indent=2, ensure_ascii=False))
+    advance_phase(rp, "baseline", "maker",
+                  updates={"round": 1, "baseline_composite": out["composite"]})
+    print(json.dumps({"baseline_composite": out["composite"], "phase": "maker", "round": 1}))
+
+
 def _load_dotenv(path: str = ".env") -> None:
     """Load KEY=VALUE from .env into os.environ via setdefault (explicit env wins).
     Shell-safe python parse (zsh `source` chokes on some .env lines). No-op if absent."""
@@ -153,6 +188,19 @@ def main(argv=None):
     s.add_argument("--eval", default=None, help="eval dir (reads goal.yaml agent.venv)")
     s.add_argument("--base", default=".")
     s.set_defaults(func=_setup)
+
+    s = sub.add_parser("init")
+    s.add_argument("--goal", required=True)
+    s.add_argument("--eval", required=True)
+    s.add_argument("--run-id", required=True)
+    s.add_argument("--base", default=".")
+    s.set_defaults(func=_init)
+
+    s = sub.add_parser("baseline")
+    s.add_argument("--eval", required=True)
+    s.add_argument("--run-id", required=True)
+    s.add_argument("--base", default=".")
+    s.set_defaults(func=_baseline)
 
     a = ap.parse_args(argv)
     a.func(a)

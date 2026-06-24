@@ -162,3 +162,72 @@ def test_setup_agent_venv_without_pip(tmp_path, monkeypatch):
     dotpy = (repo / ".self-iterate" / ".python").read_text()
     assert ".venv/bin/python" in dotpy                       # used the agent venv
     assert ".self-iterate/.venv" not in dotpy                # did NOT bootstrap
+
+
+def test_cli_init_writes_state_baseline(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 4\nweights: {gates: 1.0}\nregression: block\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    st = load_state(RunPaths(base=str(repo), run_id="r1"))
+    assert st["phase"] == "baseline"
+    assert st["max_rounds"] == 4
+    assert json.loads(buf.getvalue())["phase"] == "baseline"
+
+
+def test_cli_baseline_runs_cases_and_advances_to_maker(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("score len")
+    # init first
+    main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    # stub run_cases so we don't need a real agent/llm
+    captured = {}
+    def fake_run_cases(cases, worktree, gates_path, judge_md, weights, run_case_fn, judge_case_fn=None, llm_call=None):
+        captured["called"] = True
+        return {"cases": [], "composite": 0.5, "gate_pass_rates": {}, "judge_means": {}}
+    monkeypatch.setattr("loop_iter.cli.run_cases", fake_run_cases, raising=False)
+    # cli imports run_cases lazily inside _baseline via `from loop_iter.case_runner import run_cases`;
+    # patch the source module so the lazy import picks up the stub:
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", fake_run_cases)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    assert captured["called"]
+    st = load_state(RunPaths(base=str(repo), run_id="r1"))
+    assert st["phase"] == "maker"
+    assert st["round"] == 1
+    assert st["baseline_composite"] == 0.5
+    rp = RunPaths(base=str(repo), run_id="r1")
+    assert json.loads(rp.baseline_file.read_text())["composite"] == 0.5
+
+
+def test_cli_baseline_refuses_wrong_phase(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text("[]")
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    rp = RunPaths(base=str(repo), run_id="r1")
+    init_state(rp, "g", 3)
+    advance_to = rp  # force phase out of baseline
+    import loop_iter.state as stmod
+    st = stmod.load_state(rp); st["phase"] = "maker"; stmod.write_state(rp, st)
+    try:
+        main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+        assert False, "should refuse"
+    except SystemExit as e:
+        assert "phase guard" in str(e)
