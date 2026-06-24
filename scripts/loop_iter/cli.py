@@ -72,10 +72,14 @@ def _case_run(args):
 
 def _goal_check(args):
     from loop_iter.state import RunPaths
-    from loop_iter.goal_check import check_latest
+    from loop_iter.goal_check import check_latest, check_and_advance
     rp = RunPaths(base=args.base, run_id=args.run_id)
     best = json.loads(args.best_gate_rates) if args.best_gate_rates else None
-    v = check_latest(rp, str(Path(args.eval, "goal.yaml")), best)
+    goal_path = str(Path(args.eval, "goal.yaml"))
+    if rp.state_file.exists():
+        v = check_and_advance(rp, goal_path, best)
+    else:
+        v = check_latest(rp, goal_path, best)
     print(json.dumps(v, indent=2))
     raise SystemExit(0 if v["met"] else 1)
 
