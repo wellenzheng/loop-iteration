@@ -107,3 +107,21 @@ def _normalize_result(raw, case_id: str) -> dict:
                 "trace": raw.get("trace") or {}, "error": raw.get("error")}
     return {"case_id": case_id, "output": str(raw) if raw is not None else "",
             "trace": {}, "error": None}
+
+
+def run_command_case(case: dict, worktree: str, config: dict) -> dict:
+    """Run config['cmd'] with {variant_dir}/{query}/{worktree} substituted; capture stdout.
+    Never raises (crash/timeout -> error field)."""
+    variant_dir = _variant_dir(worktree, config)
+    mapping = {"{variant_dir}": variant_dir,
+               "{query}": case.get("query", ""),
+               "{worktree}": worktree}
+    cmd = [_sub(str(t), mapping) for t in config.get("cmd", [])]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=config.get("timeout", 120))
+        output = proc.stdout.strip()
+        error = None if proc.returncode == 0 else f"exit {proc.returncode}: {proc.stderr.strip()[:300]}"
+    except Exception as exc:
+        output, error = "", f"run_case error: {exc!r}"
+    return {"case_id": case["id"], "output": output, "trace": {}, "error": error}

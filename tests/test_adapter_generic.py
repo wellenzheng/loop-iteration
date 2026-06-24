@@ -110,3 +110,33 @@ def test_normalize_result_from_none():
 def test_normalize_result_from_rich_dict():
     r = _normalize_result({"output": "hi", "trace": {"x": 1}, "error": "boom"}, "c1")
     assert r == {"case_id": "c1", "output": "hi", "trace": {"x": 1}, "error": "boom"}
+
+
+import sys
+from loop_iter.adapter_generic import run_command_case
+
+
+def test_run_command_case_substitutes_query(tmp_path):
+    # cmd = [python, -c, "print uppercased argv[1]", {query}]
+    cmd = [sys.executable, "-c", "import sys; print(sys.argv[1].upper())", "{query}"]
+    r = run_command_case({"id": "c1", "query": "hello", "expected": None},
+                         str(tmp_path), {"cmd": cmd})
+    assert r["case_id"] == "c1"
+    assert r["output"].strip() == "HELLO"
+    assert r["error"] is None
+
+
+def test_run_command_case_uses_variant_subdir(tmp_path):
+    (tmp_path / "skills").mkdir()
+    (tmp_path / "skills" / "marker").write_text("VARIANT")
+    cmd = [sys.executable, "-c", "import sys; print(open(sys.argv[1]).read())", "{variant_dir}/marker"]
+    r = run_command_case({"id": "c1", "query": "q", "expected": None},
+                         str(tmp_path), {"cmd": cmd, "variant_subdir": "skills"})
+    assert r["output"].strip() == "VARIANT"
+
+
+def test_run_command_case_never_raises_on_bad_cmd(tmp_path):
+    r = run_command_case({"id": "c1", "query": "q", "expected": None},
+                         str(tmp_path), {"cmd": ["/no/such/binary"], "timeout": 5})
+    assert r["error"] is not None
+    assert r["output"] == ""
