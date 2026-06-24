@@ -164,6 +164,43 @@ def _baseline(args):
     print(json.dumps({"baseline_composite": out["composite"], "phase": "maker", "round": 1}))
 
 
+def _report(args):
+    import difflib
+    from loop_iter.state import RunPaths, load_state, load_scores
+    from loop_iter.adapter_generic import resolve_harness
+    rp = RunPaths(base=args.base, run_id=args.run_id)
+    rp.run_dir.mkdir(parents=True, exist_ok=True)
+    st = load_state(rp)
+    data = load_scores(rp)
+    rounds = data.get("rounds", [])
+    if not rounds:
+        raise SystemExit("report: no rounds recorded")
+    best_round = data.get("best_round") or rounds[-1]["round"]
+    best = next(r for r in rounds if r["round"] == best_round)
+    snap_dir = rp.variants_dir / f"round_{best_round}"
+    harness = resolve_harness(args.eval, args.base)
+    diff_lines: list[str] = []
+    for rel in harness:
+        base_path = Path(args.base, rel)
+        snap_path = snap_dir / rel
+        base_lines = base_path.read_text().splitlines(keepends=True) if base_path.exists() else []
+        snap_lines = snap_path.read_text().splitlines(keepends=True) if snap_path.exists() else []
+        diff_lines.extend(difflib.unified_diff(
+            base_lines, snap_lines,
+            fromfile=f"baseline/{rel}", tofile=f"round_{best_round}/{rel}"))
+    rp.winner_diff.write_text("".join(diff_lines))
+    lines = [f"# Run {rp.run_id}", "",
+             f"- met: {st['met']}", f"- best round: {best_round}",
+             f"- best composite: {best['composite']:.3f}",
+             f"- baseline composite: {st.get('baseline_composite')}", "", "## Per-round", ""]
+    for r in rounds:
+        lines.append(f"- round {r['round']}: composite {r['composite']:.3f}, "
+                     f"gates {r.get('gate_pass_rates', {})}")
+    rp.report_md.write_text("\n".join(lines) + "\n")
+    print(json.dumps({"winner_diff": str(rp.winner_diff), "report_md": str(rp.report_md),
+                      "best_round": best_round, "met": st["met"]}))
+
+
 def _load_dotenv(path: str = ".env") -> None:
     """Load KEY=VALUE from .env into os.environ via setdefault (explicit env wins).
     Shell-safe python parse (zsh `source` chokes on some .env lines). No-op if absent."""
@@ -229,6 +266,12 @@ def main(argv=None):
     s.add_argument("--run-id", required=True)
     s.add_argument("--base", default=".")
     s.set_defaults(func=_baseline)
+
+    s = sub.add_parser("report")
+    s.add_argument("--eval", required=True)
+    s.add_argument("--run-id", required=True)
+    s.add_argument("--base", default=".")
+    s.set_defaults(func=_report)
 
     a = ap.parse_args(argv)
     a.func(a)

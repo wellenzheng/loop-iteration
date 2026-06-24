@@ -366,3 +366,39 @@ def test_cli_case_run_refuses_wrong_phase(tmp_path, monkeypatch):
     assert load_state(rp)["phase"] == "goalcheck"   # unchanged
     # and scores.json must NOT have been written (guard refused before append_round)
     assert not rp.scores.exists()
+
+
+def test_cli_report_writes_diff_and_md(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, append_round
+    repo = _repo(tmp_path)   # repo has CLAUDE.md = "baseline"
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    append_round(rp, {"round": 1, "composite": 0.9, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    # snapshot an edited variant so the diff has something to show
+    snap = rp.variants_dir / "round_1" / "CLAUDE.md"
+    snap.parent.mkdir(parents=True, exist_ok=True)
+    snap.write_text("round1-edited")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["report", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    diff = rp.winner_diff.read_text()
+    assert "baseline/CLAUDE.md" in diff and "round_1/CLAUDE.md" in diff
+    assert "-baseline" in diff and "+round1-edited" in diff
+    md = rp.report_md.read_text()
+    assert "best round: 1" in md
+    assert "composite 0.900" in md
+
+def test_cli_report_refuses_no_rounds(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    try:
+        main(["report", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+        assert False, "should refuse"
+    except SystemExit as e:
+        assert "no rounds" in str(e)
