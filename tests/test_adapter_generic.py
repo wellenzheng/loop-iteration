@@ -78,3 +78,35 @@ def test_snapshot_harness_copies_listed_files(tmp_path):
     snapshot_harness(str(wt), ["CLAUDE.md", ".claude/skills/foo/SKILL.md"], str(dest))
     assert (dest / "CLAUDE.md").read_text() == "root"
     assert (dest / ".claude/skills/foo/SKILL.md").read_text() == "skill"
+
+
+from loop_iter.adapter_generic import _variant_dir, _sub, _normalize_result
+
+
+def test_variant_dir_default_is_worktree(tmp_path):
+    assert _variant_dir(str(tmp_path), {}) == str(tmp_path)
+
+
+def test_variant_dir_with_subdir(tmp_path):
+    assert _variant_dir(str(tmp_path), {"variant_subdir": "skills"}) == str(tmp_path / "skills")
+
+
+def test_sub_replaces_placeholders():
+    out = _sub("echo {query} in {variant_dir}",
+               {"{query}": "hi", "{variant_dir}": "/wt"})
+    assert out == "echo hi in /wt"
+
+
+def test_normalize_result_from_str():
+    r = _normalize_result("hello", "c1")
+    assert r == {"case_id": "c1", "output": "hello", "trace": {}, "error": None}
+
+
+def test_normalize_result_from_none():
+    r = _normalize_result(None, "c1")
+    assert r["output"] == "" and r["error"] is None
+
+
+def test_normalize_result_from_rich_dict():
+    r = _normalize_result({"output": "hi", "trace": {"x": 1}, "error": "boom"}, "c1")
+    assert r == {"case_id": "c1", "output": "hi", "trace": {"x": 1}, "error": "boom"}

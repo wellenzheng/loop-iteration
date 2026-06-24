@@ -81,3 +81,29 @@ def snapshot_harness(worktree: str, harness_paths: list[str], dest: str) -> None
         out = Path(dest, rel)
         out.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, out)
+
+
+import os
+
+
+def _variant_dir(worktree: str, config: dict) -> str:
+    """The variant harness dir: worktree itself, or worktree/<variant_subdir>."""
+    sub = config.get("variant_subdir")
+    return os.path.join(worktree, sub) if sub else worktree
+
+
+def _sub(template: str, mapping: dict) -> str:
+    """Substitute {variant_dir}/{query}/{worktree}-style placeholders in a string."""
+    out = template
+    for k, v in mapping.items():
+        out = out.replace(k, str(v))
+    return out
+
+
+def _normalize_result(raw, case_id: str) -> dict:
+    """Coerce an entry's return (str | None | {output,trace,error}) into a Result."""
+    if isinstance(raw, dict) and "output" in raw:
+        return {"case_id": case_id, "output": str(raw.get("output", "")),
+                "trace": raw.get("trace") or {}, "error": raw.get("error")}
+    return {"case_id": case_id, "output": str(raw) if raw is not None else "",
+            "trace": {}, "error": None}
