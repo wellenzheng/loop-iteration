@@ -32,17 +32,12 @@ def _case_run(args):
     import yaml
     from loop_iter.state import RunPaths, append_round
     from loop_iter.case_runner import run_cases
-    from loop_iter.adapter_generic import resolve_harness, load_run_case, run_case_default
+    from loop_iter.adapter_generic import resolve_harness, build_run_case
     ev = Path(args.eval)
     goal = yaml.safe_load((ev / "goal.yaml").read_text())
     cases = json.loads((ev / "cases.json").read_text())
     harness = resolve_harness(args.eval, args.base)
-    user_rc = load_run_case(args.eval)
-    if user_rc is not None:
-        rc = lambda case, worktree: user_rc(case, worktree, harness)
-    else:
-        cfg = goal.get("agent", {})
-        rc = lambda case, worktree: run_case_default(case, worktree, cfg)
+    rc = build_run_case(args.eval, goal.get("agent", {}), harness)
     from loop_iter.llm_client import chat as llm_call
     out = run_cases(cases, args.worktree, str(ev / "gates.py"),
                     (ev / "judge.md").read_text(), goal["weights"],
