@@ -105,9 +105,11 @@ def _setup(args):
 def _init(args):
     import yaml
     from loop_iter.state import RunPaths, init_state
+    rp = RunPaths(base=args.base, run_id=args.run_id)
+    if rp.state_file.exists():
+        raise SystemExit(f"run already initialized: {rp.state_file} (resume with `start`, do not re-init)")
     goal_path = Path(args.eval, "goal.yaml")
     spec = yaml.safe_load(goal_path.read_text())
-    rp = RunPaths(base=args.base, run_id=args.run_id)
     st = init_state(rp, args.goal, spec["max_rounds"])
     print(json.dumps({"run_id": args.run_id, "phase": st["phase"], "max_rounds": st["max_rounds"]}))
 

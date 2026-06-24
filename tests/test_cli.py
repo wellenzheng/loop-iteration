@@ -231,3 +231,22 @@ def test_cli_baseline_refuses_wrong_phase(tmp_path, monkeypatch):
         assert False, "should refuse"
     except SystemExit as e:
         assert "phase guard" in str(e)
+
+
+def test_cli_init_refuses_to_clobber_existing_run(tmp_path):
+    from loop_iter.cli import main
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 4\nweights: {gates: 1.0}\nregression: block\n")
+    main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    # advance phase so we can detect clobbering (state would be lost)
+    from loop_iter.state import RunPaths, load_state, write_state
+    rp = RunPaths(base=str(repo), run_id="r1")
+    st = load_state(rp); st["phase"] = "maker"; write_state(rp, st)
+    try:
+        main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+        assert False, "re-init should refuse"
+    except SystemExit as e:
+        assert "already initialized" in str(e)
+    # state must be untouched (still maker, not reset to baseline)
+    assert load_state(rp)["phase"] == "maker"
