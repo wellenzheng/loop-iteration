@@ -1,49 +1,41 @@
 ---
 name: self-iterate
-description: Drives ONE round of agent-harness self-iteration for the agent in the current repo. Read state → stage a candidate worktree → dispatch the harness-rewriter (maker) to fix last round's failures on the resolved harness paths → dispatch the case-evaluator (checker) to score it → snapshot + update state → report the goal-checker verdict. The loop is run-until-done (ralph/autopilot) wrapping this skill; goal-checker is the separate reviewer. Use when the user runs "/self-iterate toward <goal>" or says "self-iterate toward <goal>".
+description: Drives the built-in state-machine self-iteration loop for the agent in the current repo (baseline → maker/checker rounds → goal-check → report), advancing an on-disk state machine at .self-iterate/runs/<run_id>/state.json. The cli enforces phase ordering and the max_rounds cap; no external ralph/autopilot needed. Use when the user runs "/self-iterate toward <goal>" or "/self-iterate start <goal>".
 ---
 
-# self-iterate (one round)
+# self-iterate (state-machine loop)
 
-You run exactly one round, in the user's current repo (cwd). The broader loop is driven by run-until-done — you do not loop yourself.
+You drive the built-in self-iteration loop in the user's current repo (cwd), advancing an on-disk
+state machine at `.self-iterate/runs/<run_id>/state.json`. The cli enforces phase ordering — you
+cannot skip steps. You loop until `phase == done`.
 
 ## Inputs
 - `goal` — eval name under `.self-iterate/` in cwd.
-- `run_id` — current run id. `round` — this round's number (1-based).
+- `run_id` — a fresh id for this run (e.g. `YYYYMMDD_HHMMSS_shorttag`).
 
-## One round
-**Interpreter.** The cli must run under the agent's own Python (so `python-import` shims find their deps). Use the interpreter recorded by `/self-iterate setup`:
+## Interpreter
 ```
 PY=$(cat .self-iterate/.python 2>/dev/null || echo python)
 ```
-Use `"$PY"` for every cli call below.
+Use `"$PY"` for every cli call below. `<plugin>` = this plugin's root.
 
-1. **Stage the variant.** Resolve a worktree + harness paths via the bundled CLI (path is relative to this plugin's root):
-   ```
-   "$PY" <plugin-root>/scripts/loop_iter/cli.py apply-variant --eval .self-iterate/<goal> --baseline HEAD
-   ```
-   Read the printed JSON: `{worktree, harness}`. `harness` is the list of files the maker may edit.
-2. **Maker.** Dispatch the `harness-rewriter` agent with `worktree`, `harness` (the paths), and last round's findings (round 1: "cold start — sharpen the baseline harness to satisfy the gates"). It edits only files in `harness`.
-3. **Checker.** Dispatch the `case-evaluator` skill on the worktree. It runs:
-   ```
-   "$PY" <plugin-root>/scripts/loop_iter/cli.py case-run --eval .self-iterate/<goal> --worktree <worktree> --run-id <run_id> --round <round>
-   ```
-   which writes this round's RunScores into `.loop/iterate/<run_id>/scores.json` and returns failing gates + weak dims.
-4. **Snapshot + state.** Snapshot the variant's harness files into `.loop/iterate/<run_id>/variants/round_<N>/` (provenance):
-   ```
-   "$PY" <plugin-root>/scripts/loop_iter/cli.py snapshot --eval .self-iterate/<goal> --worktree <worktree> --dest .loop/iterate/<run_id>/variants/round_<N>
-   ```
-   Append a one-line summary to `.loop/iterate/<run_id>/progress.md`.
-5. **Stop-condition handoff.** Run the goal-checker:
-   ```
-   "$PY" <plugin-root>/scripts/loop_iter/cli.py goal-check --eval .self-iterate/<goal> --run-id <run_id> [--best-gate-rates '<json>']
-   ```
-   Exit 0 = met (stop, surface the best variant); exit 1 = not met (return findings; run-until-done fires the next round).
+## Loop
+1. **Init** (once): `"$PY" <plugin>/scripts/loop_iter/cli.py init --goal <goal> --eval .self-iterate/<goal> --run-id <run_id>`. Creates `state.json` at `phase=baseline`.
+2. **Baseline** (once): `"$PY" <plugin>/scripts/loop_iter/cli.py baseline --eval .self-iterate/<goal> --run-id <run_id>`. Scores the unmodified harness, writes `baseline.json`, advances to `phase=maker`, `round=1`.
+3. **Per round, while `phase != done`:**
+   a. **Stage + maker.** `apply-variant` for a worktree, then dispatch the `harness-rewriter` agent on the worktree (round 1: "cold start — sharpen the baseline harness to satisfy the gates"; later rounds: pass the failing gates + weak dims from the previous `case-run`).
+   b. **Snapshot + advance.** `"$PY" <plugin>/scripts/loop_iter/cli.py snapshot --eval .self-iterate/<goal> --worktree <worktree> --dest .self-iterate/runs/<run_id>/variants/round_<N> --run-id <run_id>`. Snapshots the variant and advances `maker -> eval`.
+   c. **Eval + advance.** `"$PY" <plugin>/scripts/loop_iter/cli.py case-run --eval .self-iterate/<goal> --worktree <worktree> --run-id <run_id> --round <N>`. Runs cases + judge, writes this round into `scores.json`, advances `eval -> goalcheck`.
+   d. **Goal-check + advance.** `"$PY" <plugin>/scripts/loop_iter/cli.py goal-check --eval .self-iterate/<goal> --run-id <run_id>`. Computes the verdict and advances: `met` or `round >= max_rounds` -> `phase=done`; otherwise -> `phase=maker`, `round++`.
+4. **Report** (at `done`): `"$PY" <plugin>/scripts/loop_iter/cli.py report --eval .self-iterate/<goal> --run-id <run_id>`. Writes `winner.diff` + `report.md`. Surface the best round + whether `met`.
 
-## Run-until-done
-Wrap this skill in **ralph / autopilot**: worker = "run one self-iterate round toward `<goal>`", reviewer = the `goal-checker` agent. The stop condition (composite ≥ threshold, no gate regression, ≤ max_rounds) is judged by an agent that did NOT do the work.
+## Resume
+Re-invoking `start` reads `state.json` and resumes from the current phase. If you stall mid-round,
+re-run `start` with the same `<run_id>` — the cli picks up at the recorded phase.
 
 ## Rules
-- One round only. Maker and checker are different agents; you are the orchestrator.
-- State lives in the user's repo (`.loop/iterate/<run_id>/`). The plugin is stateless.
-- Source repo is never mutated mid-loop — only the worktree. Merging the winner is the human's call.
+- You advance phases only via the cli (each command checks + writes `state.json`). Never edit
+  `state.json` by hand.
+- Maker and checker are different agents; you are the orchestrator.
+- The source repo is never mutated mid-loop — only the worktree. Merging the winner is the human's call.
+- Stop only when `phase == done`. The cli enforces the `max_rounds` cap; you cannot loop past it.
