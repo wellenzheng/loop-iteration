@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 @dataclass
@@ -10,23 +11,47 @@ class RunPaths:
 
     @property
     def run_dir(self) -> Path:
-        return Path(self.base, ".loop", "iterate", self.run_id)
+        return Path(self.base, ".self-iterate", "runs", self.run_id)
+
+    def _ensure(self) -> Path:
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        return self.run_dir
+
+    @property
+    def state_file(self) -> Path:
+        return self._ensure() / "state.json"
+
+    @property
+    def baseline_file(self) -> Path:
+        return self._ensure() / "baseline.json"
+
+    @property
+    def report_md(self) -> Path:
+        return self._ensure() / "report.md"
+
+    @property
+    def winner_diff(self) -> Path:
+        return self._ensure() / "winner.diff"
 
     @property
     def scores(self) -> Path:
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        return self.run_dir / "scores.json"
+        return self._ensure() / "scores.json"
 
     @property
     def progress(self) -> Path:
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        return self.run_dir / "progress.md"
+        return self._ensure() / "progress.md"
 
     @property
     def variants_dir(self) -> Path:
-        d = self.run_dir / "variants"; d.mkdir(parents=True, exist_ok=True)
+        d = self._ensure() / "variants"; d.mkdir(parents=True, exist_ok=True)
         return d
 
+
+def _now() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+# ---- scores.json (accumulating rounds) ----
 def _load_raw(rp: RunPaths) -> dict:
     if not rp.scores.exists():
         return {"run_id": rp.run_id, "rounds": [], "best_round": None}
@@ -47,3 +72,37 @@ def append_round(rp: RunPaths, run_scores: dict) -> dict:
 
 def write_progress(rp: RunPaths, body: str) -> None:
     rp.progress.write_text(f"# Run {rp.run_id}\n\n{body}\n")
+
+
+# ---- state.json (phase machine) ----
+def write_state(rp: RunPaths, st: dict) -> None:
+    p = rp.state_file
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(st, indent=2, ensure_ascii=False))
+    tmp.replace(p)
+
+def load_state(rp: RunPaths) -> dict:
+    if not rp.state_file.exists():
+        raise FileNotFoundError(f"no state.json at {rp.state_file}")
+    return json.loads(rp.state_file.read_text())
+
+def init_state(rp: RunPaths, goal: str, max_rounds: int) -> dict:
+    st = {"goal": goal, "run_id": rp.run_id, "round": 0, "max_rounds": max_rounds,
+          "phase": "baseline", "met": False, "baseline_composite": None,
+          "baseline_quality": None,
+          "best": {"round": None, "composite": None, "worktree": None},
+          "started_at": _now(), "updated_at": _now()}
+    write_state(rp, st)
+    return st
+
+def advance_phase(rp: RunPaths, expected: str, next_phase: str,
+                  updates: dict | None = None) -> dict:
+    st = load_state(rp)
+    if st["phase"] != expected:
+        raise RuntimeError(f"phase guard: expected {expected!r}, state has {st['phase']!r}")
+    st["phase"] = next_phase
+    if updates:
+        st.update(updates)
+    st["updated_at"] = _now()
+    write_state(rp, st)
+    return st
