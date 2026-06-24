@@ -79,6 +79,7 @@ def _case_run(args):
                             "quality_dims": qdims or []}, indent=2, ensure_ascii=False))
     else:
         out["quality"] = None
+        out["quality_dims"] = []
     if rp.state_file.exists():
         append_round(rp, out)
         advance_phase(rp, "eval", "goalcheck")
