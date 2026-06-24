@@ -1,5 +1,6 @@
 import json, subprocess, io, contextlib
 from pathlib import Path
+import pytest
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -162,3 +163,348 @@ def test_setup_agent_venv_without_pip(tmp_path, monkeypatch):
     dotpy = (repo / ".self-iterate" / ".python").read_text()
     assert ".venv/bin/python" in dotpy                       # used the agent venv
     assert ".self-iterate/.venv" not in dotpy                # did NOT bootstrap
+
+
+def test_cli_init_writes_state_baseline(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 4\nweights: {gates: 1.0}\nregression: block\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    st = load_state(RunPaths(base=str(repo), run_id="r1"))
+    assert st["phase"] == "baseline"
+    assert st["max_rounds"] == 4
+    assert json.loads(buf.getvalue())["phase"] == "baseline"
+
+
+def test_cli_baseline_runs_cases_and_advances_to_maker(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("score len")
+    # init first
+    main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    # stub run_cases so we don't need a real agent/llm
+    captured = {}
+    def fake_run_cases(cases, worktree, gates_path, judge_md, weights, run_case_fn, judge_case_fn=None, llm_call=None):
+        captured["called"] = True
+        return {"cases": [], "composite": 0.5, "gate_pass_rates": {}, "judge_means": {}}
+    monkeypatch.setattr("loop_iter.cli.run_cases", fake_run_cases, raising=False)
+    # cli imports run_cases lazily inside _baseline via `from loop_iter.case_runner import run_cases`;
+    # patch the source module so the lazy import picks up the stub:
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", fake_run_cases)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    assert captured["called"]
+    st = load_state(RunPaths(base=str(repo), run_id="r1"))
+    assert st["phase"] == "maker"
+    assert st["round"] == 1
+    assert st["baseline_composite"] == 0.5
+    rp = RunPaths(base=str(repo), run_id="r1")
+    assert json.loads(rp.baseline_file.read_text())["composite"] == 0.5
+
+
+def test_cli_baseline_refuses_wrong_phase(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text("[]")
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    rp = RunPaths(base=str(repo), run_id="r1")
+    init_state(rp, "g", 3)
+    advance_to = rp  # force phase out of baseline
+    import loop_iter.state as stmod
+    st = stmod.load_state(rp); st["phase"] = "maker"; stmod.write_state(rp, st)
+    try:
+        main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+        assert False, "should refuse"
+    except SystemExit as e:
+        assert "phase guard" in str(e)
+
+
+def test_cli_init_refuses_to_clobber_existing_run(tmp_path):
+    from loop_iter.cli import main
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 4\nweights: {gates: 1.0}\nregression: block\n")
+    main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    # advance phase so we can detect clobbering (state would be lost)
+    from loop_iter.state import RunPaths, load_state, write_state
+    rp = RunPaths(base=str(repo), run_id="r1")
+    st = load_state(rp); st["phase"] = "maker"; write_state(rp, st)
+    try:
+        main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+        assert False, "re-init should refuse"
+    except SystemExit as e:
+        assert "already initialized" in str(e)
+    # state must be untouched (still maker, not reset to baseline)
+    assert load_state(rp)["phase"] == "maker"
+
+
+def test_cli_snapshot_advances_maker_to_eval_inside_run(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.adapter import remove_worktree
+    from loop_iter.state import RunPaths, init_state, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    import loop_iter.state as stmod
+    st = load_state(rp); st["phase"] = "maker"; st["round"] = 1; stmod.write_state(rp, st)
+    # stage a worktree + edit harness
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["apply-variant", "--eval", str(ev), "--base", str(repo)])
+    wt = json.loads(buf.getvalue())["worktree"]
+    Path(wt, "CLAUDE.md").write_text("edited")
+    dest = str(rp.variants_dir / "round_1")
+    buf2 = io.StringIO()
+    with contextlib.redirect_stdout(buf2):
+        main(["snapshot", "--eval", str(ev), "--worktree", wt, "--dest", dest,
+              "--base", str(repo), "--run-id", "r1"])
+    assert load_state(rp)["phase"] == "eval"
+    remove_worktree(wt)
+
+
+def test_cli_snapshot_legacy_without_run_id_unchanged(tmp_path):
+    # no state.json, no --run-id -> behaves as before, no phase advance
+    from loop_iter.cli import main
+    from loop_iter.adapter import remove_worktree
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["apply-variant", "--eval", str(ev), "--base", str(repo)])
+    wt = json.loads(buf.getvalue())["worktree"]
+    Path(wt, "CLAUDE.md").write_text("edited")
+    dest = tmp_path / "snap"
+    buf2 = io.StringIO()
+    with contextlib.redirect_stdout(buf2):
+        main(["snapshot", "--eval", str(ev), "--worktree", wt, "--dest", str(dest), "--base", str(repo)])
+    assert (dest / "CLAUDE.md").read_text() == "edited"   # snapshot still worked
+    remove_worktree(wt)
+
+
+def test_cli_case_run_advances_eval_to_goalcheck_inside_run(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    import loop_iter.state as stmod
+    st = load_state(rp); st["phase"] = "eval"; st["round"] = 1; stmod.write_state(rp, st)
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", lambda *a, **k:
+        {"cases": [], "composite": 0.9, "gate_pass_rates": {}, "judge_means": {}})
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["case-run", "--eval", str(ev), "--worktree", str(repo),
+              "--run-id", "r1", "--base", str(repo), "--round", "1"])
+    assert load_state(rp)["phase"] == "goalcheck"
+
+
+def test_cli_snapshot_refuses_wrong_phase(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.adapter import remove_worktree
+    from loop_iter.state import RunPaths, init_state, load_state, write_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    st = load_state(rp); st["phase"] = "eval"; write_state(rp, st)   # wrong phase for snapshot
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["apply-variant", "--eval", str(ev), "--base", str(repo)])
+    wt = json.loads(buf.getvalue())["worktree"]
+    try:
+        main(["snapshot", "--eval", str(ev), "--worktree", wt,
+              "--dest", str(tmp_path / "snap"), "--base", str(repo), "--run-id", "r1"])
+        assert False, "should refuse"
+    except SystemExit as e:
+        assert "phase guard" in str(e) and "maker" in str(e)
+    assert load_state(rp)["phase"] == "eval"   # unchanged
+    remove_worktree(wt)
+
+
+def test_cli_case_run_refuses_wrong_phase(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state, write_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    st = load_state(rp); st["phase"] = "goalcheck"; write_state(rp, st)   # wrong phase for case-run
+    import loop_iter.case_runner as cr
+    def boom(*a, **k):
+        raise AssertionError("run_cases must NOT be called when phase guard refuses")
+    monkeypatch.setattr(cr, "run_cases", boom)
+    try:
+        main(["case-run", "--eval", str(ev), "--worktree", str(repo),
+              "--run-id", "r1", "--base", str(repo), "--round", "1"])
+        assert False, "should refuse"
+    except SystemExit as e:
+        assert "phase guard" in str(e) and "eval" in str(e)
+    assert load_state(rp)["phase"] == "goalcheck"   # unchanged
+    # and scores.json must NOT have been written (guard refused before append_round)
+    assert not rp.scores.exists()
+
+
+def test_cli_report_writes_diff_and_md(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, append_round
+    repo = _repo(tmp_path)   # repo has CLAUDE.md = "baseline"
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    append_round(rp, {"round": 1, "composite": 0.9, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    # snapshot an edited variant so the diff has something to show
+    snap = rp.variants_dir / "round_1" / "CLAUDE.md"
+    snap.parent.mkdir(parents=True, exist_ok=True)
+    snap.write_text("round1-edited")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["report", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    diff = rp.winner_diff.read_text()
+    assert "baseline/CLAUDE.md" in diff and "round_1/CLAUDE.md" in diff
+    assert "-baseline" in diff and "+round1-edited" in diff
+    md = rp.report_md.read_text()
+    assert "best round: 1" in md
+    assert "composite 0.900" in md
+
+def test_cli_report_skips_missing_snapshot(tmp_path, capsys):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, append_round
+    repo = _repo(tmp_path)   # CLAUDE.md = "baseline"
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    append_round(rp, {"round": 1, "composite": 0.9, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    # NO snapshot written for round_1/CLAUDE.md -> must be skipped, not faked as a deletion
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["report", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    diff = rp.winner_diff.read_text()
+    assert "-baseline" not in diff          # no fake whole-file deletion
+    err = capsys.readouterr().err
+    assert "no snapshot for CLAUDE.md" in err   # warning emitted
+
+
+def test_cli_report_refuses_no_rounds(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    try:
+        main(["report", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+        assert False, "should refuse"
+    except SystemExit as e:
+        assert "no rounds" in str(e)
+
+
+def test_cli_goal_check_wrong_phase_exits_cleanly(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state, write_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    st = load_state(rp); st["phase"] = "eval"; write_state(rp, st)   # wrong phase for goalcheck
+    try:
+        main(["goal-check", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+        assert False, "should exit"
+    except SystemExit as e:
+        assert "phase guard" in str(e)
+    except RuntimeError:
+        assert False, "cli must convert RuntimeError to SystemExit"
+
+
+def test_e2e_state_machine_full_flow(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    from loop_iter.adapter import remove_worktree
+    repo = _repo(tmp_path)   # CLAUDE.md = "baseline"
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 2\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    rp = RunPaths(base=str(repo), run_id="e2e")
+    # stub run_cases: round 1 composite 0.5 (not met), round 2 composite 0.9 (met).
+    # NOTE: baseline ALSO calls run_cases (call #1), so round-1 case-run is call #2,
+    # round-2 case-run is call #3.
+    calls = {"n": 0}
+    def fake_run_cases(cases, worktree, gates_path, judge_md, weights, run_case_fn, judge_case_fn=None, llm_call=None):
+        calls["n"] += 1
+        comp = 0.5 if calls["n"] <= 2 else 0.9
+        return {"cases": [], "composite": comp, "gate_pass_rates": {"x": 1.0}, "judge_means": {}}
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", fake_run_cases)
+
+    def call(*argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            main(list(argv))
+        return buf.getvalue()
+
+    # init + baseline
+    call("init", "--goal", "g", "--eval", str(ev), "--run-id", "e2e", "--base", str(repo))
+    call("baseline", "--eval", str(ev), "--run-id", "e2e", "--base", str(repo))
+    assert load_state(rp)["phase"] == "maker"
+    assert load_state(rp)["round"] == 1
+
+    # round 1: maker edits the worktree harness, snapshot, case-run, goal-check (not met -> round 2)
+    wt = json.loads(call("apply-variant", "--eval", str(ev), "--base", str(repo)))["worktree"]
+    Path(wt, "CLAUDE.md").write_text("round1")
+    call("snapshot", "--eval", str(ev), "--worktree", wt,
+         "--dest", str(rp.variants_dir / "round_1"), "--base", str(repo), "--run-id", "e2e")
+    assert load_state(rp)["phase"] == "eval"
+    call("case-run", "--eval", str(ev), "--worktree", wt, "--run-id", "e2e", "--base", str(repo), "--round", "1")
+    assert load_state(rp)["phase"] == "goalcheck"
+    with pytest.raises(SystemExit) as ei:
+        call("goal-check", "--eval", str(ev), "--run-id", "e2e", "--base", str(repo))
+    assert ei.value.code == 1   # not met -> exit 1
+    st = load_state(rp)
+    assert st["phase"] == "maker" and st["round"] == 2   # looped to round 2
+    remove_worktree(wt)
+
+    # round 2: met -> done
+    wt2 = json.loads(call("apply-variant", "--eval", str(ev), "--base", str(repo)))["worktree"]
+    Path(wt2, "CLAUDE.md").write_text("round2-wins")
+    call("snapshot", "--eval", str(ev), "--worktree", wt2,
+         "--dest", str(rp.variants_dir / "round_2"), "--base", str(repo), "--run-id", "e2e")
+    call("case-run", "--eval", str(ev), "--worktree", wt2, "--run-id", "e2e", "--base", str(repo), "--round", "2")
+    with pytest.raises(SystemExit) as ei2:
+        call("goal-check", "--eval", str(ev), "--run-id", "e2e", "--base", str(repo))
+    assert ei2.value.code == 0   # met -> exit 0
+    st = load_state(rp)
+    assert st["phase"] == "done" and st["met"] is True
+    assert st["best"]["round"] == 2 and st["best"]["composite"] == 0.9   # Fix 1
+    remove_worktree(wt2)
+
+    # report
+    call("report", "--eval", str(ev), "--run-id", "e2e", "--base", str(repo))
+    assert rp.winner_diff.exists() and rp.report_md.exists()
+    md = rp.report_md.read_text()
+    assert "best round: 2" in md and "met: True" in md

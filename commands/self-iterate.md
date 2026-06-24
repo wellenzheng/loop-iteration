@@ -4,23 +4,25 @@ description: Self-iterate the current repo's agent harness toward a goal until a
 
 # /self-iterate
 
-Usage: `/self-iterate toward <goal>`
+Usage:
+- `/self-iterate setup` — interactive: reads the repo, proposes the eval spec, confirms with you,
+  writes `.self-iterate/<goal>/`, then resolves the Python env (`agent.venv` or bootstrap) to
+  `.self-iterate/.python`. (The interactive proposer is a separate skill; until it lands, hand-write
+  the spec from `examples/toy/.self-iterate/toy-basic/`.)
+- `/self-iterate start <goal>` — runs the built-in state-machine loop to completion (baseline →
+  maker/checker rounds → goal-check → report), persisting everything under
+  `.self-iterate/runs/<run_id>/`. `/self-iterate toward <goal>` is an alias.
+- `/self-iterate setup` (env only) is still run once automatically before `start` if `.self-iterate/.python`
+  is missing.
 
-Dispatches the `self-iterate` skill for one round toward the eval spec at
-`.self-iterate/<goal>/` in the current repo, wrapped in run-until-done (ralph/autopilot)
-with the `goal-checker` agent as the reviewer.
-
-## What it does
-1. Ensures the Python env is ready: runs `cli.py setup --eval .self-iterate/<goal>` (once). If
-   `goal.yaml` has `agent.venv` (e.g. `.venv`), it uses that venv (which has the agent's own deps,
-   e.g. `zai_adk`); otherwise it bootstraps `.self-iterate/.venv`. The chosen interpreter is recorded
-   in `.self-iterate/.python`, and `.env` is auto-loaded by the cli — so no manual env sourcing.
-2. Hands off to the `self-iterate` skill, which stages a worktree, runs the maker → checker →
-   goal-checker each round, and writes state to `.loop/iterate/<run_id>/`.
-3. Stops when the goal is met (composite ≥ threshold, no gate regression, ≤ max_rounds) or the
-   cap is hit. The human merges the winning worktree.
+## What `start` does
+Dispatches the `self-iterate` skill, which loops by advancing an on-disk state machine
+(`.self-iterate/runs/<run_id>/state.json`). The cli enforces phase ordering and the `max_rounds` cap
+(from `goal.yaml`), so the loop runs until the goal is met or the cap is hit — no external
+ralph/autopilot needed. The loop never auto-merges; `report` writes `winner.diff` + `report.md` and
+you decide whether to merge the winning worktree.
 
 ## Before first use
 Create `.self-iterate/<goal>/` with `goal.yaml`, `cases.json`, `gates.py`, `judge.md`
-(copy `examples/toy/.self-iterate/toy-basic/` as a template). For a non-Claude-CLI agent,
-add a `run_case.py` escape hatch.
+(copy `examples/toy/.self-iterate/toy-basic/` as a template). For a non-Claude-CLI agent, add a
+`run_case.py` escape hatch.
