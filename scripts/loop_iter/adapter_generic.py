@@ -253,6 +253,43 @@ def _extract(data, path: str):
     return cur
 
 
+class _UserScriptAdapter(ServiceAdapter):
+    """Wraps a .self-iterate/<goal>/adapter.py that defines start/run_case/stop — a per-round
+    lifecycle adapter for bespoke protocols (SSE/JWT/custom event format). The plugin calls
+    start once per round, run_case per case, stop in finally — same as the built-in ServiceAdapter.
+    The bespoke protocol lives entirely in the agent's adapter.py (setup-authored)."""
+
+    def __init__(self, mod):
+        super().__init__({})
+        self._mod = mod
+
+    def start(self, worktree: str):
+        return self._mod.start(worktree)
+
+    def run_case(self, case: dict, worktree: str) -> dict:
+        return self._mod.run_case(case, worktree)
+
+    def stop(self) -> None:
+        self._mod.stop()
+
+
+def load_adapter(eval_dir: str):
+    """Load .self-iterate/<goal>/adapter.py as a _UserScriptAdapter if it defines start/run_case/stop
+    (per-round lifecycle for bespoke protocols). Returns None if no adapter.py. Raises ValueError if
+    adapter.py exists but lacks start/run_case/stop."""
+    p = Path(eval_dir, "adapter.py")
+    if not p.exists():
+        return None
+    spec = importlib.util.spec_from_file_location(f"_user_adapter_{p.stat().st_mtime_ns}", p)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    for fn in ("start", "run_case", "stop"):
+        if not hasattr(mod, fn):
+            raise ValueError(f"{p} must define start(worktree), run_case(case, worktree), stop()")
+    return _UserScriptAdapter(mod)
+
+
 def run_python_import_case(case: dict, worktree: str, config: dict) -> dict:
     """Import config['module'] (after adding config['module_path'] to sys.path), call
     config['entry'](query=, variant_dir=, **extra); normalize the return. Never raises."""
@@ -278,7 +315,8 @@ def build_run_case(eval_dir: str, agent_config: dict | None, harness: list):
     """Return a run_case_fn(case, worktree) chosen by agent_config['type'].
 
     Precedence: command | python-import | claude-p -> that type. custom/omitted ->
-    run_case.py if present, else claude-p default. Unknown type -> ValueError.
+    adapter.py (per-round lifecycle) if present, else run_case.py if present,
+    else claude-p default. Unknown type -> ValueError.
     """
     cfg = agent_config or {}
     atype = cfg.get("type")
@@ -292,7 +330,11 @@ def build_run_case(eval_dir: str, agent_config: dict | None, harness: list):
         return lambda case, worktree: run_case_default(case, worktree, cfg)
     if atype is not None and atype not in _KNOWN_TYPES:
         raise ValueError(f"unknown agent.type {atype!r}; expected one of {sorted(_KNOWN_TYPES)} or omit")
-    # atype is None or "custom": escape hatch if present, else claude-p default
+    # atype is None or "custom": prefer adapter.py (per-round lifecycle), then run_case.py (per-case),
+    # then the claude-p default.
+    adapter = load_adapter(eval_dir)
+    if adapter is not None:
+        return adapter
     user_rc = load_run_case(eval_dir)
     if user_rc is not None:
         return lambda case, worktree: user_rc(case, worktree, harness)
