@@ -59,14 +59,14 @@ This repo **is** a Claude Code plugin that self-iterates any agent's harness
 Place this repo in your Claude Code plugins dir (or your usual plugin-install path).
 Requires Python 3.11+. Then in any repo:
 ```
-/self-iterate setup        # picks the right Python: your agent's `agent.venv` if set (has its own
-                           # deps, e.g. zai_adk), else bootstraps .self-iterate/.venv. Records it in
-                           # .self-iterate/.python. The cli also auto-loads .env (OPENAI_* etc.) — no
-                           # manual sourcing.
+/self-iterate setup        # interactive: reads the repo, proposes the eval spec (goal.yaml/cases.json/
+                           # gates.py/judge.md/quality.md), confirms each with you, writes .self-iterate/<goal>/,
+                           # self-validates, then resolves the Python env (agent.venv or bootstrap -> .self-iterate/.python).
 ```
 
 ### Use it on your agent
-In your agent's repo, write the only thing you need — an eval spec:
+In your agent's repo, run `/self-iterate setup` — it proposes the eval spec for you to confirm. Or
+hand-write it:
 ```
 .self-iterate/<goal>/
   goal.yaml     # threshold, weights, regression, optional agent:/harness: overrides
@@ -104,7 +104,7 @@ Then:
 A generic adapter handles Claude-native agents (no adapter code): it iterates the standard
 harness (`CLAUDE.md`, `AGENTS.md`, `.claude/skills/**`, `.claude/agents/**`) in an isolated
 git worktree, runs each case via `claude -p`, and scores with your gates + judge. State lands
-in your repo at `.loop/iterate/<run_id>/`. The loop never auto-merges — you merge the winner.
+in your repo at `.self-iterate/runs/<run_id>/`. The loop never auto-merges — you merge the winner.
 
 ### Point it at a non-Claude agent
 Drop a `run_case.py` defining `run_case(case, worktree, harness_paths) -> result` into
