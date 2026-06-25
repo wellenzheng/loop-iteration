@@ -69,6 +69,14 @@ intent) and WHICH agent when several exist.
        reach the service; propose either (a) a one-line fix to the service to read from cwd, or
        (b) fall back to `python-import` (in-process shim).
      Write the proposed `agent:` (type/start/port/ready/endpoint/request/response_path) and CONFIRM.
+   - **bespoke protocol (SSE / JWT / custom event format)** — if the agent's endpoint streams (SSE)
+     or needs auth/custom parsing that the declarative `local-service` config can't express (e.g.
+     maas `/v1/chat` is SSE-only with a custom event encoder + JWT): INVESTIGATE the agent's code
+     (the route handler, the SSE encoder, the auth module) and WRITE a `.self-iterate/<goal>/adapter.py`
+     defining `start(worktree)` (launch the real service FROM the worktree so it loads the variant
+     harness), `run_case(case, worktree)` (call the endpoint with the right auth + parse the bespoke
+     response into `{output, error}`), and `stop()` (kill the service). Set `agent.type: custom`.
+     The bespoke protocol lives in this per-agent script — not in the plugin. Then smoke-test it.
    - `custom`/`run_case.py` escape hatch for bespoke agents.
    If `agent.venv` is needed, detect it (don't ask) by checking for `bin/python` under `.venv`/
    `venv`/`.python-version`/uv.
@@ -96,7 +104,7 @@ intent) and WHICH agent when several exist.
    CONFIRM each file's content with the user before writing. Adjust on feedback.
 
 5. **Write the spec** to `.self-iterate/<goal>/` (goal.yaml, cases.json, gates.py, judge.md,
-   quality.md, and the entry shim / run_case.py if the agent type needs one).
+   quality.md, and the entry shim / run_case.py / adapter.py if the agent type needs one).
 
 6. **Resolve the Python env.** Run:
    ```
