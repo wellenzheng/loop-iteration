@@ -11,6 +11,12 @@ invent an optimization target. Run cli under the plugin's interpreter when neede
 `<plugin>/scripts/loop_iter/cli.py`. Run `setup` first (resolves `.self-iterate/.python`), then run
 `validate-spec` under that interpreter.
 
+**Investigate-first.** Read the repo's code to INFER and PROPOSE every config value (entry type,
+start command, port, request/response shape, harness files, even candidate gates). The user
+CONFIRMS or tweaks your proposals — do NOT ask the user to hand-provide what you can read from the
+code. Reserve open-ended questions for things genuinely not inferable: the optimization GOAL (user
+intent) and WHICH agent when several exist.
+
 ## Loop mechanics (so you don't re-derive from source)
 
 - The loop creates a FULL git worktree of the repo at baseline each round. The maker edits the
@@ -37,26 +43,41 @@ invent an optimization target. Run cli under the plugin's interpreter when neede
      `run`/`main` script, an existing `CLAUDE.md` (claude-p agent). Note the agent's framework if any.
    - existing `.self-iterate/<goal>/`? If yes, ask whether to reuse or overwrite.
 
-2. **Detect agent type + propose `agent:` config.** Pick one and CONFIRM with the user:
+2. **Detect agent type + propose `agent:` config.** INVESTIGATE the repo to infer the entry, then
+   propose + CONFIRM. Pick one:
    - `claude-p` (default) if the repo is a Claude-Code-native agent (has CLAUDE.md/skills).
-   - `command` if there's a CLI: propose `cmd` with `{variant_dir}`/`{query}` placeholders.
-   - `python-import` if there's an in-process entry: propose `module`/`entry` + `agent.venv` (e.g.
-     `.venv`) — note the user must provide a ~5-line `entry(query, variant_dir, **extra)` shim (or a
-     `run_case.py`).
-   - `local-service` if the agent runs as a local HTTP service on `localhost:port`: ask the user for
-     the start command (it launches from the worktree — confirm the service reads its harness from
-     its cwd/launch dir, else local-service won't apply variants and you must fall back to
-     `python-import`), the port (or 0 for auto), a ready endpoint (health), the case endpoint, the
-     request body template (`{query}`), and the response JSON path to the answer. Write these into
-     `agent:` (type/start/port/ready/endpoint/request/response_path).
+   - `command` if there's a CLI: read `pyproject.toml`/scripts to propose `cmd` with
+     `{variant_dir}`/`{query}` placeholders.
+   - `python-import` if there's an in-process entry: read the agent's construction code (how it's
+     built — `create_agent`, skills_dir, system prompt) and WRITE the `entry(query, variant_dir,
+     **extra)` shim yourself (and `run_case.py` if needed) so it rebuilds the agent with
+     `skills_dir=variant_dir`. Propose `module`/`entry` + `agent.venv` (detect the venv dir —
+     `.venv`/`venv`/uv — by checking for `bin/python`).
+   - `local-service` if the agent runs as a local HTTP service on `localhost:port`. INVESTIGATE the
+     code to propose the WHOLE config — do not ask the user to hand-provide it:
+     - `start`: read `pyproject.toml` `[project.scripts]` / a main module / docker-compose / README
+       → propose the launch command (it runs from the worktree, so the service loads the variant
+       harness).
+     - `port` + `ready`: read the service's default port + any `/health` route → propose (or `0` for
+       auto).
+     - `endpoint` + `request` + `response_path`: read the case route handler (e.g. the `/v1/chat`
+       handler) → propose the `request` body template with `{query}` and the `response_path` (dotted
+       JSON path) to the answer text.
+     - **harness-from-cwd check (critical):** read the agent-construction code — does it load
+       skills/prompts from a path RELATIVE to its launch dir (cwd) or an ABSOLUTE/fixed path? If
+       relative/cwd → local-service applies variants ✓. If absolute/fixed → variant harness won't
+       reach the service; propose either (a) a one-line fix to the service to read from cwd, or
+       (b) fall back to `python-import` (in-process shim).
+     Write the proposed `agent:` (type/start/port/ready/endpoint/request/response_path) and CONFIRM.
    - `custom`/`run_case.py` escape hatch for bespoke agents.
-   If `agent.venv` is needed, ask which venv dir has the agent's deps.
+   If `agent.venv` is needed, detect it (don't ask) by checking for `bin/python` under `.venv`/
+   `venv`/`.python-version`/uv.
 
-3. **Ask the goal.** First confirm WHICH agent in the repo is the optimization target — the repo may
-   contain several (e.g. a 客服 agent vs a zdata agent). Ask the user explicitly; do NOT default to
-   one. Then ask, in one question, what the optimization target is for that agent (e.g. "make
-   escalations decisive", "answer in one word"). This becomes the `<goal>` dir name and the spec's
-   intent. Propose a kebab-case dir name and CONFIRM.
+3. **Ask the goal.** First INVESTIGATE which agents the repo contains (multiple entry points /
+   services?) and LIST them to the user; confirm WHICH is the optimization target — do NOT default
+   to one. Then ask, in one question, what the optimization target is for that agent (the goal is
+   user intent — not inferable; e.g. "make escalations decisive", "answer in one word"). This
+   becomes the `<goal>` dir name and the spec's intent. Propose a kebab-case dir name and CONFIRM.
 
 4. **Propose the eval spec drafts** (one block, then confirm piece-by-piece):
    - `goal.yaml`: `threshold` (propose 0.85), `max_rounds` (propose 3), `regression: block`,
@@ -108,8 +129,13 @@ invent an optimization target. Run cli under the plugin's interpreter when neede
    `/self-iterate start <goal>`.
 
 ## Rules
+- INVESTIGATE-FIRST: read the code to infer + propose every config (entry, start/port/endpoint/
+  request/response, harness, venv, candidate gates). The user CONFIRMS or tweaks — don't ask them
+  to hand-provide what's in the code. Reserve open questions for the GOAL (user intent) and which
+  agent when several exist.
 - PROPOSE then CONFIRM. Never write the spec without the user confirming the goal + each file.
 - Gates must be programmatic and verifiable (a command exit code / boolean), not LLM vibes — the
   loop's stop condition leans on them.
 - Don't hardcode eval answers into the proposed harness/gates.
-- If the repo has no clear agent entry, ask the user how the agent is invoked rather than guessing.
+- If the repo genuinely has no inferable entry (no scripts/routes/main), THEN ask the user how the
+  agent is invoked.
