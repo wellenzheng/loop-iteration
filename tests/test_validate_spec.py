@@ -104,3 +104,36 @@ def test_unknown_agent_type_warns(tmp_path):
     v = validate_spec(str(d))
     assert v["valid"] is False
     assert any("type" in p for p in v["problems"])
+
+
+def test_non_dict_goal_yaml_is_problem_not_crash(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    (d / "goal.yaml").write_text("just a string\n")  # scalar, not a mapping
+    (d / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (d / "gates.py").write_text("GATES={'g':lambda r,c:{'passed':True}}")
+    (d / "judge.md").write_text("x")
+    v = validate_spec(str(d))   # must NOT raise
+    assert v["valid"] is False
+    assert any("mapping" in p for p in v["problems"])
+
+
+def test_missing_GATES_is_problem(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    (d / "goal.yaml").write_text("threshold: 0.5\nmax_rounds: 3\nweights: {gates: 1.0}\n")
+    (d / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (d / "gates.py").write_text("x = 1\n")  # no GATES
+    (d / "judge.md").write_text("x")
+    v = validate_spec(str(d))
+    assert v["valid"] is False
+    assert any("GATES" in p for p in v["problems"])
+
+
+def test_bool_threshold_rejected(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    (d / "goal.yaml").write_text("threshold: true\nmax_rounds: 3\nweights: {gates: 1.0}\n")
+    (d / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (d / "gates.py").write_text("GATES={'g':lambda r,c:{'passed':True}}")
+    (d / "judge.md").write_text("x")
+    v = validate_spec(str(d))
+    assert v["valid"] is False
+    assert any("threshold" in p for p in v["problems"])

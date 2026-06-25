@@ -11,11 +11,13 @@ _VALID_AGENT_TYPES = {"claude-p", "command", "python-import", "custom"}
 
 
 def _load_gates(gates_path: Path):
-    """Import gates.py and return its GATES dict, or raise. Used to catch syntax errors + shape."""
+    """Import gates.py and return its GATES dict. Raises if gates.py fails to import OR has no GATES."""
     spec = importlib.util.spec_from_file_location("_validate_gates", gates_path)
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)  # raises SyntaxError / any import-time error
-    return getattr(mod, "GATES", None)
+    spec.loader.exec_module(mod)  # raises SyntaxError / import-time error
+    if not hasattr(mod, "GATES"):
+        raise AttributeError("GATES not defined")
+    return mod.GATES
 
 
 def validate_spec(eval_dir: str) -> dict:
@@ -28,7 +30,7 @@ def validate_spec(eval_dir: str) -> dict:
     goal_path = d / "goal.yaml"
     if not goal_path.exists():
         problems.append("goal.yaml: missing")
-        goal = None
+        goal = {}
     else:
         try:
             import yaml
@@ -36,25 +38,28 @@ def validate_spec(eval_dir: str) -> dict:
         except Exception as e:
             problems.append(f"goal.yaml: unparseable ({e})")
             goal = {}
-        if goal is not None:
-            if not isinstance(goal.get("threshold"), (int, float)):
-                problems.append("goal.yaml: threshold must be a number")
-            mr = goal.get("max_rounds")
-            if not isinstance(mr, int) or mr < 1:
-                problems.append("goal.yaml: max_rounds must be a positive int")
-            w = goal.get("weights")
-            if not isinstance(w, dict) or not w:
-                problems.append("goal.yaml: weights must be a non-empty dict")
-            agent = goal.get("agent") or {}
-            atype = agent.get("type")
-            if atype is not None and atype not in _VALID_AGENT_TYPES:
-                problems.append(f"goal.yaml: agent.type {atype!r} not in {sorted(_VALID_AGENT_TYPES)}")
-            if atype is None:
-                warnings.append("goal.yaml: agent.type unset -> defaults to claude-p")
-            if atype == "command" and not agent.get("cmd"):
-                warnings.append("goal.yaml: agent.type=command but no agent.cmd set")
-            if atype == "python-import" and not (agent.get("module") and agent.get("entry")):
-                warnings.append("goal.yaml: agent.type=python-import but agent.module/entry unset")
+        if not isinstance(goal, dict):
+            problems.append("goal.yaml: must be a mapping")
+            goal = {}
+    # goal is now always a dict (possibly empty); run checks
+    if not isinstance(goal.get("threshold"), (int, float)) or isinstance(goal.get("threshold"), bool):
+        problems.append("goal.yaml: threshold must be a number")
+    mr = goal.get("max_rounds")
+    if isinstance(mr, bool) or not isinstance(mr, int) or mr < 1:
+        problems.append("goal.yaml: max_rounds must be a positive int")
+    w = goal.get("weights")
+    if not isinstance(w, dict) or not w:
+        problems.append("goal.yaml: weights must be a non-empty dict")
+    agent = goal.get("agent") or {}
+    atype = agent.get("type")
+    if atype is not None and atype not in _VALID_AGENT_TYPES:
+        problems.append(f"goal.yaml: agent.type {atype!r} not in {sorted(_VALID_AGENT_TYPES)}")
+    if atype is None:
+        warnings.append("goal.yaml: agent.type unset -> defaults to claude-p")
+    if atype == "command" and not agent.get("cmd"):
+        warnings.append("goal.yaml: agent.type=command but no agent.cmd set")
+    if atype == "python-import" and not (agent.get("module") and agent.get("entry")):
+        warnings.append("goal.yaml: agent.type=python-import but agent.module/entry unset")
 
     # cases.json
     cases_path = d / "cases.json"
@@ -82,7 +87,7 @@ def validate_spec(eval_dir: str) -> dict:
         try:
             gates = _load_gates(gates_path)
         except Exception as e:
-            problems.append(f"gates.py: failed to import ({e})")
+            problems.append(f"gates.py: {e}")
             gates = None
         if gates is not None:
             if not isinstance(gates, dict) or not gates:
