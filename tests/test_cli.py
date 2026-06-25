@@ -658,3 +658,71 @@ def test_cli_quality_drops_when_harness_hardcodes_answer(tmp_path, monkeypatch):
     with contextlib.redirect_stdout(buf):
         main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
     assert load_state(rp)["baseline_quality"] == 0.0   # no_overfit=0 (hardcoded), LLM None
+
+
+def test_cli_smoke_runs_one_case_no_state(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"},{"id":"c2","query":"yo","expected":"yo"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    import loop_iter.adapter_generic as ag
+    monkeypatch.setattr(ag, "build_run_case", lambda eval_dir, cfg, harness:
+                        (lambda case, worktree: {"case_id": case["id"], "output": "ok", "trace": {}, "error": None}))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["smoke", "--eval", str(ev), "--base", str(repo)])
+    out = json.loads(buf.getvalue())
+    assert out["case_id"] == "c1"          # only case[0]
+    assert out["error"] is None
+    # no run state created
+    assert not (repo / ".self-iterate" / "runs").exists()
+
+
+def test_cli_smoke_exits_1_on_error(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    import loop_iter.adapter_generic as ag
+    monkeypatch.setattr(ag, "build_run_case", lambda eval_dir, cfg, harness:
+                        (lambda case, worktree: {"case_id": case["id"], "output": "", "trace": {}, "error": "boom"}))
+    try:
+        main(["smoke", "--eval", str(ev), "--base", str(repo)])
+        assert False, "should exit 1"
+    except SystemExit as e:
+        assert e.code == 1
+
+
+def test_cli_smoke_handles_service_adapter(tmp_path, monkeypatch):
+    """smoke detects a ServiceAdapter and runs start/run_case/stop (not the per-case callable)."""
+    from loop_iter.cli import main
+    from loop_iter.adapter_generic import ServiceAdapter
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+
+    class FakeSvc(ServiceAdapter):
+        def __init__(self):
+            super().__init__({}); self.started = 0; self.stopped = 0
+        def start(self, worktree): self.started += 1
+        def run_case(self, case, worktree):
+            return {"case_id": case["id"], "output": "svc-answer", "trace": {}, "error": None}
+        def stop(self): self.stopped += 1
+    svc = FakeSvc()
+    import loop_iter.adapter_generic as ag
+    monkeypatch.setattr(ag, "build_run_case", lambda eval_dir, cfg, harness: svc)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["smoke", "--eval", str(ev), "--base", str(repo)])
+    out = json.loads(buf.getvalue())
+    assert out["output"] == "svc-answer"
+    assert svc.started == 1 and svc.stopped == 1
