@@ -22,6 +22,11 @@ Use `"$PY"` for every cli call below. `<plugin>` = this plugin's root.
 ## Loop
 1. **Init** (once): `"$PY" <plugin>/scripts/loop_iter/cli.py init --goal <goal> --eval .self-iterate/<goal> --run-id <run_id>`. Creates `state.json` at `phase=baseline`.
 2. **Baseline** (once): `"$PY" <plugin>/scripts/loop_iter/cli.py baseline --eval .self-iterate/<goal> --run-id <run_id>`. Scores the unmodified harness, writes `baseline.json`, advances to `phase=maker`, `round=1`.
+   *(If `.self-iterate/<goal>/quality.md` exists, the baseline and each `case-run` also score the
+   harness files themselves on a quality rubric → `baseline_quality` / per-round `quality.json`. A
+   round whose quality regresses below `baseline_quality − quality_tolerance` (default 0.5) cannot
+   satisfy `met` and cannot be the best variant — the guardrail against overfitting/harness rot.
+   No `quality.md` → guardrail inactive.)*
 3. **Per round, while `phase != done`:**
    a. **Stage + maker.** `apply-variant` for a worktree, then dispatch the `harness-rewriter` agent on the worktree (round 1: "cold start — sharpen the baseline harness to satisfy the gates"; later rounds: pass the failing gates + weak dims from the previous `case-run`).
    b. **Snapshot + advance.** `"$PY" <plugin>/scripts/loop_iter/cli.py snapshot --eval .self-iterate/<goal> --worktree <worktree> --dest .self-iterate/runs/<run_id>/variants/round_<N> --run-id <run_id>`. Snapshots the variant and advances `maker -> eval`.

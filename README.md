@@ -73,6 +73,8 @@ In your agent's repo, write the only thing you need — an eval spec:
   cases.json    # your QA set
   gates.py      # your programmatic gates (GATES = {name: fn})
   judge.md      # your LLM-rubric dims
+  quality.md    # OPTIONAL — rubric judging the harness FILES themselves (guardrail: a round whose
+                #            quality regresses below baseline can't satisfy the goal or be the winner)
   # optional run_case.py — escape hatch for non-Claude-CLI agents (e.g. a service)
 ```
 
