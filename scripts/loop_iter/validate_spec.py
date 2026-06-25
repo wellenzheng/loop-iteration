@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 
-_VALID_AGENT_TYPES = {"claude-p", "command", "python-import", "custom"}
+_VALID_AGENT_TYPES = {"claude-p", "command", "python-import", "custom", "local-service"}
 
 
 def _load_gates(gates_path: Path):
@@ -65,6 +65,15 @@ def validate_spec(eval_dir: str) -> dict:
         warnings.append("goal.yaml: agent.type=command but no agent.cmd set")
     if atype == "python-import" and not (agent.get("module") and agent.get("entry")):
         warnings.append("goal.yaml: agent.type=python-import but agent.module/entry unset")
+    if atype == "local-service":
+        if not agent.get("start"):
+            problems.append("goal.yaml: agent.type=local-service requires agent.start")
+        if not agent.get("endpoint"):
+            problems.append("goal.yaml: agent.type=local-service requires agent.endpoint")
+        if not agent.get("request"):
+            problems.append("goal.yaml: agent.type=local-service requires agent.request")
+        if not agent.get("ready"):
+            warnings.append("goal.yaml: local-service has no agent.ready check (startup may be racy)")
 
     # cases.json
     cases_path = d / "cases.json"

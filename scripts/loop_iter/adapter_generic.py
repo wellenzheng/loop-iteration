@@ -142,6 +142,115 @@ def run_command_case(case: dict, worktree: str, config: dict) -> dict:
 
 
 import importlib
+import socket
+import time
+
+
+class ServiceAdapter:
+    """Per-round local-service adapter: start the agent's local HTTP service FROM the worktree
+    (so it loads the variant harness), POST each case to it, stop at round end. One start/stop per
+    round (not per case). All steps are best-effort; stop() never raises."""
+
+    def __init__(self, config: dict):
+        self.config = config
+        self.proc = None
+        self.port = None
+        self._worktree = None
+
+    def _free_port(self) -> int:
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        p = s.getsockname()[1]
+        s.close()
+        return p
+
+    def _sub(self, template: str) -> str:
+        return (template.replace("{worktree}", self._worktree or "")
+                        .replace("{port}", str(self.port)))
+
+    def start(self, worktree: str) -> int:
+        self._worktree = worktree
+        self.port = int(self.config.get("port") or 0) or self._free_port()
+        cmd = [self._sub(str(c)) for c in self.config.get("start", [])]
+        if cmd:
+            self.proc = subprocess.Popen(cmd, cwd=worktree, start_new_session=True,
+                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        ready = self._sub(str(self.config.get("ready") or ""))
+        timeout = float(self.config.get("timeout", 120))
+        deadline = time.time() + timeout
+        if ready:
+            import httpx
+            while time.time() < deadline:
+                try:
+                    r = httpx.get(ready, timeout=2)
+                    if r.status_code < 500:
+                        return self.port
+                except Exception:
+                    pass
+                time.sleep(0.5)
+            err = ""
+            if self.proc is not None and self.proc.stderr is not None:
+                try:
+                    err = self.proc.stderr.read().decode(errors="replace")[:300]
+                except Exception:
+                    err = ""
+            raise RuntimeError(f"service not ready at {ready} within {timeout}s; stderr: {err}")
+        time.sleep(1.0)
+        return self.port
+
+    def run_case(self, case: dict, worktree: str) -> dict:
+        endpoint = self._sub(str(self.config.get("endpoint", "")))
+        body = self._sub(str(self.config.get("request", ""))).replace("{query}", str(case.get("query", "")))
+        try:
+            import httpx
+            r = httpx.post(endpoint, content=body,
+                           headers={"Content-Type": "application/json"},
+                           timeout=float(self.config.get("timeout", 120)))
+            data = r.json() if r.text else {}
+            output = _extract(data, self.config.get("response_path", ""))
+            error = None if r.status_code < 400 else f"http {r.status_code}: {r.text[:200]}"
+        except Exception as exc:
+            output, error = "", f"local-service run_case error: {exc!r}"
+        if error is not None:
+            output = ""
+        return {"case_id": case.get("id"), "output": "" if output is None else str(output),
+                "trace": {}, "error": error}
+
+    def stop(self) -> None:
+        import os, signal
+        proc = self.proc
+        if proc is not None and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except Exception:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+        self.proc = None
+
+
+def _extract(data, path: str):
+    """Dotted-path lookup into a dict (e.g. 'data.answer'). Empty path -> data itself. Missing -> None."""
+    if not path:
+        return data
+    cur = data
+    for k in path.split("."):
+        if isinstance(cur, dict) and k in cur:
+            cur = cur[k]
+        else:
+            return None
+    return cur
 
 
 def run_python_import_case(case: dict, worktree: str, config: dict) -> dict:
@@ -162,7 +271,7 @@ def run_python_import_case(case: dict, worktree: str, config: dict) -> dict:
         return {"case_id": case["id"], "output": "", "trace": {}, "error": f"run_case error: {exc!r}"}
 
 
-_KNOWN_TYPES = {"claude-p", "command", "python-import", "custom"}
+_KNOWN_TYPES = {"claude-p", "command", "python-import", "custom", "local-service"}
 
 
 def build_run_case(eval_dir: str, agent_config: dict | None, harness: list):
@@ -173,6 +282,8 @@ def build_run_case(eval_dir: str, agent_config: dict | None, harness: list):
     """
     cfg = agent_config or {}
     atype = cfg.get("type")
+    if atype == "local-service":
+        return ServiceAdapter(cfg)
     if atype == "command":
         return lambda case, worktree: run_command_case(case, worktree, cfg)
     if atype == "python-import":

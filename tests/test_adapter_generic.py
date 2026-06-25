@@ -267,3 +267,184 @@ def test_harness_text_does_not_crash_on_binary(tmp_path):
     (ev / "goal.yaml").write_text("harness: [CLAUDE.md]\nthreshold: 0.5\nmax_rounds: 1\nweights: {gates: 1.0}\n")
     text = harness_text(str(ev), str(repo), str(repo))   # must not raise
     assert "### CLAUDE.md" in text
+
+
+import socket, threading, time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from loop_iter.adapter_generic import ServiceAdapter, _extract
+
+
+def test_extract_dotted_path():
+    assert _extract({"data": {"answer": "hi"}}, "data.answer") == "hi"
+    assert _extract({"x": 1}, "x") == 1
+    assert _extract({"a": {"b": {"c": 9}}}, "a.b.c") == 9
+    assert _extract({"a": 1}, "missing") is None
+    assert _extract({"a": 1}, "") == {"a": 1}
+
+
+def _tiny_server(port, handler_cls):
+    srv = HTTPServer(("127.0.0.1", port), handler_cls)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+class _EchoHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(n).decode()
+        self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers()
+        import json
+        try: q = json.loads(body).get("query", "")
+        except Exception: q = body
+        self.wfile.write(json.dumps({"data": {"answer": q.upper()}}).encode())
+    def do_GET(self):
+        self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+    def log_message(self, *a): pass
+
+
+def _free_port():
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
+
+
+def test_service_adapter_start_run_case_stop_against_real_server(tmp_path):
+    port = _free_port()
+    srv = _tiny_server(port, _EchoHandler)
+    try:
+        cfg = {
+            "type": "local-service",
+            "start": ["bash", "-c", f"echo started"],
+            "port": port,
+            "ready": f"http://localhost:{port}/",
+            "endpoint": f"http://localhost:{port}/v1/chat",
+            "request": '{"query":"{query}"}',
+            "response_path": "data.answer",
+            "timeout": 10,
+        }
+        ad = ServiceAdapter(cfg)
+        assert ad.start(str(tmp_path)) == port
+        result = ad.run_case({"id": "c1", "query": "hello"}, str(tmp_path))
+        assert result["case_id"] == "c1"
+        assert result["output"] == "HELLO"
+        assert result["error"] is None
+        ad.stop()
+    finally:
+        srv.shutdown()
+
+
+def test_service_adapter_auto_picks_port_when_zero(tmp_path):
+    cfg = {
+        "type": "local-service",
+        "start": ["bash", "-c", "echo x"],
+        "port": 0,
+        "ready": "http://localhost:{port}/",
+        "endpoint": "http://localhost:{port}/v1/chat",
+        "request": '{"query":"{query}"}',
+        "response_path": "data.answer",
+        "timeout": 3,
+    }
+    ad = ServiceAdapter(cfg)
+    import pytest
+    with pytest.raises(RuntimeError, match="not ready"):
+        ad.start(str(tmp_path))
+    ad.stop()
+
+
+def test_service_adapter_run_case_swallows_errors(tmp_path):
+    cfg = {
+        "type": "local-service",
+        "start": ["bash", "-c", "echo x"],
+        "port": _free_port(),
+        "ready": "",
+        "endpoint": "http://127.0.0.1:1/v1/chat",
+        "request": '{"query":"{query}"}',
+        "response_path": "data.answer",
+        "timeout": 2,
+    }
+    ad = ServiceAdapter(cfg)
+    ad.start(str(tmp_path))
+    result = ad.run_case({"id": "c1", "query": "hi"}, str(tmp_path))
+    assert result["error"] is not None and "run_case" in result["error"]
+    assert result["output"] == ""
+    ad.stop()
+
+
+def test_service_adapter_stop_never_raises(tmp_path):
+    ad = ServiceAdapter({"type": "local-service", "start": ["bash", "-c", "echo x"],
+                         "port": _free_port(), "ready": "", "endpoint": "http://127.0.0.1:1/",
+                         "request": "{}", "response_path": "", "timeout": 2})
+    ad.stop()
+    ad.start(str(tmp_path))
+    ad.stop(); ad.stop()
+
+
+def test_build_run_case_returns_service_adapter_for_local_service(tmp_path):
+    from loop_iter.adapter_generic import build_run_case
+    ad = build_run_case(str(tmp_path), {"type": "local-service",
+                         "start": ["bash", "-c", "echo x"], "port": 0, "ready": "",
+                         "endpoint": "http://127.0.0.1:1/", "request": "{}",
+                         "response_path": "", "timeout": 2}, [])
+    assert isinstance(ad, ServiceAdapter)
+
+
+def test_service_adapter_stop_kills_process_group(tmp_path):
+    """stop() must kill the whole process group, not just the direct child — a start cmd that
+    forks a long-running child must not leave an orphan."""
+    import subprocess, time
+    # start cmd: bash that backgrounds a sleep and stays alive briefly via the sleep child
+    # Use a start cmd that forks a long-running child, then verify the child is gone after stop.
+    cfg = {
+        "type": "local-service",
+        "start": ["bash", "-c", "sleep 30 & wait"],   # forks a sleep 30 child, waits on it
+        "port": _free_port(),
+        "ready": "",  # no ready check
+        "endpoint": "http://127.0.0.1:1/",
+        "request": "{}", "response_path": "", "timeout": 2,
+    }
+    ad = ServiceAdapter(cfg)
+    ad.start(str(tmp_path))
+    # the bash process + its sleep child are alive
+    import os, signal
+    pgid = os.getpgid(ad.proc.pid)
+    ad.stop()
+    # give it a moment to die
+    time.sleep(0.5)
+    # killing the group again should now find no live process (process group gone) -> no exception
+    try:
+        os.killpg(pgid, 0)  # signal 0 = existence check
+        # if we reach here without exception, something in the group is still alive -> fail
+        still_alive = True
+    except (ProcessLookupError, PermissionError, OSError):
+        still_alive = False
+    assert not still_alive, "stop() left an orphan process in the service's group"
+
+
+def test_service_adapter_http_error_includes_body(tmp_path):
+    """A 4xx/5xx response body snippet is included in the error for debuggability."""
+    port = _free_port()
+
+    class _ErrHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        def do_POST(self):
+            body = b'{"error":"internal boom"}'
+            self.send_response(500); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body)
+        def do_GET(self):
+            self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"ok")
+        def log_message(self, *a): pass
+
+    srv = _tiny_server(port, _ErrHandler)
+    try:
+        cfg = {"type": "local-service", "start": ["bash", "-c", "echo x"], "port": port,
+               "ready": f"http://localhost:{port}/", "endpoint": f"http://localhost:{port}/v1/chat",
+               "request": '{"query":"{query}"}', "response_path": "data.answer", "timeout": 10}
+        ad = ServiceAdapter(cfg)
+        ad.start(str(tmp_path))
+        result = ad.run_case({"id": "c1", "query": "hi"}, str(tmp_path))
+        assert result["error"] is not None
+        assert "500" in result["error"]
+        assert "internal boom" in result["error"]   # body snippet included
+        assert result["output"] == ""                # cleared on error
+        ad.stop()
+    finally:
+        srv.shutdown()

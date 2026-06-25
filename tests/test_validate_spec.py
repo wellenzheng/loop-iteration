@@ -139,6 +139,48 @@ def test_bool_threshold_rejected(tmp_path):
     assert any("threshold" in p for p in v["problems"])
 
 
+def test_local_service_requires_start_endpoint_request(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d)
+    goal = (d / "goal.yaml").read_text() + "agent:\n  type: local-service\n"
+    (d / "goal.yaml").write_text(goal)
+    v = validate_spec(str(d))
+    assert v["valid"] is False
+    problems = " ".join(v["problems"])
+    assert "start" in problems and "endpoint" in problems and "request" in problems
+
+
+def test_local_service_valid_with_full_config(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d)
+    goal = (d / "goal.yaml").read_text() + (
+        "agent:\n  type: local-service\n"
+        "  start: ['bash','-c','echo x']\n"
+        "  endpoint: 'http://localhost:{port}/v1/chat'\n"
+        "  request: '{\"query\":\"{query}\"}'\n"
+        "  response_path: 'data.answer'\n")
+    (d / "goal.yaml").write_text(goal)
+    v = validate_spec(str(d))
+    assert v["valid"] is True
+    assert any("ready" in w for w in v["warnings"])
+
+
+def test_local_service_with_ready_no_warning(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d)
+    goal = (d / "goal.yaml").read_text() + (
+        "agent:\n  type: local-service\n"
+        "  start: ['bash','-c','echo x']\n"
+        "  ready: 'http://localhost:{port}/health'\n"
+        "  endpoint: 'http://localhost:{port}/v1/chat'\n"
+        "  request: '{\"query\":\"{query}\"}'\n"
+        "  response_path: 'data.answer'\n")
+    (d / "goal.yaml").write_text(goal)
+    v = validate_spec(str(d))
+    assert v["valid"] is True
+    assert not any("ready" in w for w in v["warnings"])
+
+
 def test_missing_pyyaml_reports_clear_problem(tmp_path, monkeypatch):
     import builtins
     d = tmp_path / "g"; d.mkdir()

@@ -246,6 +246,29 @@ def _validate_spec(args):
     raise SystemExit(0 if v["valid"] else 1)
 
 
+def _smoke(args):
+    import yaml
+    from loop_iter.adapter_generic import build_run_case, resolve_harness, ServiceAdapter
+    ev = Path(args.eval)
+    goal = yaml.safe_load((ev / "goal.yaml").read_text())
+    cases = json.loads((ev / "cases.json").read_text())
+    harness = resolve_harness(args.eval, args.base)
+    rc = build_run_case(args.eval, goal.get("agent", {}), harness)
+    case0 = cases[0]
+    if isinstance(rc, ServiceAdapter):
+        rc.start(args.base)
+        try:
+            result = rc.run_case(case0, args.base)
+        finally:
+            rc.stop()
+    else:
+        result = rc(case0, args.base)
+    print(json.dumps({"case_id": result.get("case_id"), "output": result.get("output", ""),
+                      "error": result.get("error")}, ensure_ascii=False, indent=2))
+    if result.get("error"):
+        raise SystemExit(1)
+
+
 def _load_dotenv(path: str = ".env") -> None:
     """Load KEY=VALUE from .env into os.environ via setdefault (explicit env wins).
     Shell-safe python parse (zsh `source` chokes on some .env lines). No-op if absent."""
@@ -321,6 +344,11 @@ def main(argv=None):
     s = sub.add_parser("validate-spec")
     s.add_argument("--eval", required=True)
     s.set_defaults(func=_validate_spec)
+
+    s = sub.add_parser("smoke")
+    s.add_argument("--eval", required=True)
+    s.add_argument("--base", default=".")
+    s.set_defaults(func=_smoke)
 
     a = ap.parse_args(argv)
     a.func(a)
