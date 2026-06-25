@@ -8,7 +8,8 @@ description: Interactive setup for the self-iterate loop. Reads the current repo
 You bootstrap a self-iterate eval spec for the agent in the user's current repo (cwd), then resolve
 its Python env. You PROPOSE drafts and CONFIRM each with the user before writing — never silently
 invent an optimization target. Run cli under the plugin's interpreter when needed:
-`<plugin>/scripts/loop_iter/cli.py` (use `python` for validate-spec; `setup` resolves its own venv).
+`<plugin>/scripts/loop_iter/cli.py`. Run `setup` first (resolves `.self-iterate/.python`), then run
+`validate-spec` under that interpreter.
 
 ## Workflow
 
@@ -48,20 +49,22 @@ invent an optimization target. Run cli under the plugin's interpreter when neede
 5. **Write the spec** to `.self-iterate/<goal>/` (goal.yaml, cases.json, gates.py, judge.md,
    quality.md, and the entry shim / run_case.py if the agent type needs one).
 
-6. **Self-validate.** Run:
-   ```
-   python <plugin>/scripts/loop_iter/cli.py validate-spec --eval .self-iterate/<goal>
-   ```
-   If `valid` is false, read the `problems`, FIX the offending file, re-run until valid. Surface
-   `warnings` to the user (e.g. quality.md absent, agent.type unset) and confirm whether to address.
-
-7. **Resolve the Python env.** Run:
+6. **Resolve the Python env.** Run:
    ```
    python <plugin>/scripts/loop_iter/cli.py setup --eval .self-iterate/<goal>
    ```
    This picks `agent.venv` if set (has the agent's deps) else bootstraps `.self-iterate/.venv`, and
-   records the interpreter at `.self-iterate/.python`. (For python-import agents, confirm the shim
-   imports the agent under that venv — ask the user to run one case manually if unsure.)
+   records the interpreter at `.self-iterate/.python` (that venv has pyyaml+httpx, so validate-spec
+   can run). For python-import agents, confirm the shim imports the agent under that venv — ask the
+   user to run one case manually if unsure.
+
+7. **Self-validate.** Run validate-spec under the recorded interpreter:
+   ```
+   "$(cat .self-iterate/.python)" <plugin>/scripts/loop_iter/cli.py validate-spec --eval .self-iterate/<goal>
+   ```
+   If `valid` is false, read the `problems`, FIX the offending file, re-run until valid. Surface
+   `warnings` to the user (e.g. quality.md absent, agent.type unset) and confirm whether to address.
+   (If validate-spec reports a pyyaml problem, the env didn't resolve — re-run `setup`.)
 
 8. **Report.** Tell the user the spec is ready at `.self-iterate/<goal>/` and the next step is
    `/self-iterate start <goal>`.

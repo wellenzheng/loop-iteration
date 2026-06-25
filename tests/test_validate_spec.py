@@ -137,3 +137,24 @@ def test_bool_threshold_rejected(tmp_path):
     v = validate_spec(str(d))
     assert v["valid"] is False
     assert any("threshold" in p for p in v["problems"])
+
+
+def test_missing_pyyaml_reports_clear_problem(tmp_path, monkeypatch):
+    import builtins
+    d = tmp_path / "g"; d.mkdir()
+    (d / "goal.yaml").write_text("threshold: 0.5\nmax_rounds: 3\nweights: {gates: 1.0}\n")
+    (d / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (d / "gates.py").write_text("GATES={'g':lambda r,c:{'passed':True}}")
+    (d / "judge.md").write_text("x")
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name == "yaml":
+            raise ImportError("no pyyaml")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    v = validate_spec(str(d))
+    assert v["valid"] is False
+    assert any("pyyaml" in p for p in v["problems"])
+    assert not any("unparseable" in p for p in v["problems"])

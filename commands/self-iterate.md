@@ -12,8 +12,8 @@ Usage:
 - `/self-iterate start <goal>` — runs the built-in state-machine loop to completion (baseline →
   maker/checker rounds → goal-check → report), persisting everything under
   `.self-iterate/runs/<run_id>/`. `/self-iterate toward <goal>` is an alias.
-- `/self-iterate setup` (env only) is still run once automatically before `start` if `.self-iterate/.python`
-  is missing.
+- `/self-iterate start` calls the cli `setup` handler directly (env-only, non-interactive) if
+  `.self-iterate/.python` is missing — it does NOT run the interactive `self-iterate-setup` skill.
 
 ## What `start` does
 Dispatches the `self-iterate` skill, which loops by advancing an on-disk state machine

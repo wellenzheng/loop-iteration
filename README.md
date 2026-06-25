@@ -104,7 +104,7 @@ Then:
 A generic adapter handles Claude-native agents (no adapter code): it iterates the standard
 harness (`CLAUDE.md`, `AGENTS.md`, `.claude/skills/**`, `.claude/agents/**`) in an isolated
 git worktree, runs each case via `claude -p`, and scores with your gates + judge. State lands
-in your repo at `.loop/iterate/<run_id>/`. The loop never auto-merges — you merge the winner.
+in your repo at `.self-iterate/runs/<run_id>/`. The loop never auto-merges — you merge the winner.
 
 ### Point it at a non-Claude agent
 Drop a `run_case.py` defining `run_case(case, worktree, harness_paths) -> result` into

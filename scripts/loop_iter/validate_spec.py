@@ -34,13 +34,18 @@ def validate_spec(eval_dir: str) -> dict:
     else:
         try:
             import yaml
-            goal = yaml.safe_load(goal_path.read_text()) or {}
-        except Exception as e:
-            problems.append(f"goal.yaml: unparseable ({e})")
+        except ImportError:
+            problems.append("pyyaml not installed (run: pip install pyyaml) - cannot parse goal.yaml")
             goal = {}
-        if not isinstance(goal, dict):
-            problems.append("goal.yaml: must be a mapping")
-            goal = {}
+        else:
+            try:
+                goal = yaml.safe_load(goal_path.read_text()) or {}
+            except Exception as e:
+                problems.append(f"goal.yaml: unparseable ({e})")
+                goal = {}
+            if not isinstance(goal, dict):
+                problems.append("goal.yaml: must be a mapping")
+                goal = {}
     # goal is now always a dict (possibly empty); run checks
     if not isinstance(goal.get("threshold"), (int, float)) or isinstance(goal.get("threshold"), bool):
         problems.append("goal.yaml: threshold must be a number")
