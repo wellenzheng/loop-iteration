@@ -508,3 +508,95 @@ def test_e2e_state_machine_full_flow(tmp_path, monkeypatch):
     assert rp.winner_diff.exists() and rp.report_md.exists()
     md = rp.report_md.read_text()
     assert "best round: 2" in md and "met: True" in md
+
+
+def test_cli_baseline_computes_quality_when_quality_md_present(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    (ev / "quality.md").write_text("rubric: be clear")
+    rp = RunPaths(base=str(repo), run_id="r1")
+    main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", lambda *a, **k:
+        {"cases": [], "composite": 0.5, "gate_pass_rates": {}, "judge_means": {}})
+    import loop_iter.judge as jm
+    monkeypatch.setattr(jm, "judge_quality", lambda text, md, llm_call, model="glm-4.7":
+        [{"dim": "clarity", "score": 8.0}])
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    st = load_state(rp)
+    assert st["baseline_quality"] == 8.0
+    import json
+    assert json.loads(rp.baseline_file.read_text())["quality"] == 8.0
+
+
+def test_cli_baseline_skips_quality_when_no_quality_md(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    # NO quality.md
+    rp = RunPaths(base=str(repo), run_id="r1")
+    main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", lambda *a, **k:
+        {"cases": [], "composite": 0.5, "gate_pass_rates": {}, "judge_means": {}})
+    import loop_iter.judge as jm
+    def boom(*a, **k):
+        raise AssertionError("judge_quality must not be called without quality.md")
+    monkeypatch.setattr(jm, "judge_quality", boom)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    assert load_state(rp)["baseline_quality"] is None
+
+
+def test_cli_case_run_writes_quality_when_quality_md_present(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state, load_scores
+    repo = _repo(tmp_path)                       # CLAUDE.md = "baseline" (the base harness)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("harness: [CLAUDE.md]\nthreshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    (ev / "quality.md").write_text("rubric: be clear")
+    # a DISTINCT worktree dir whose CLAUDE.md differs from the base, so we can prove
+    # judge_quality was fed the WORKTREE's harness, not the base's
+    wt = tmp_path / "variant_wt"; wt.mkdir()
+    (wt / "CLAUDE.md").write_text("VARIANT-HARNESS-CONTENT")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    import loop_iter.state as stmod
+    st = stmod.load_state(rp); st["phase"] = "eval"; st["round"] = 1; stmod.write_state(rp, st)
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", lambda *a, **k:
+        {"cases": [], "composite": 0.9, "gate_pass_rates": {}, "judge_means": {}})
+    captured = {}
+    def fake_judge_quality(text, md, llm_call, model="glm-4.7"):
+        captured["text"] = text
+        return [{"dim": "clarity", "score": 7.0}]
+    import loop_iter.judge as jm
+    monkeypatch.setattr(jm, "judge_quality", fake_judge_quality)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["case-run", "--eval", str(ev), "--worktree", str(wt),
+              "--run-id", "r1", "--base", str(repo), "--round", "1"])
+    # core invariant: judge_quality saw the WORKTREE's harness, not the base's
+    assert "VARIANT-HARNESS-CONTENT" in captured["text"]
+    assert "### CLAUDE.md" in captured["text"]
+    import json
+    q = json.loads((rp.run_dir / "quality.json").read_text())
+    assert q["round"] == 1 and q["quality"] == 7.0
+    assert load_scores(rp)["rounds"][-1]["quality"] == 7.0
+    assert load_state(rp)["phase"] == "goalcheck"

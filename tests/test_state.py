@@ -10,6 +10,7 @@ from loop_iter.state import (
     load_state,
     write_state,
     advance_phase,
+    recompute_best,
 )
 
 def test_run_paths_layout(tmp_path):
@@ -81,3 +82,24 @@ def test_state_file_probe_does_not_create_run_dir(tmp_path):
     rp = RunPaths(base=str(tmp_path), run_id="ghost")
     assert rp.state_file.exists() is False        # read-only probe
     assert rp.run_dir.exists() is False           # MUST NOT have created the dir
+
+def test_recompute_best_tiebreak_by_quality(tmp_path):
+    rp = RunPaths(base=str(tmp_path), run_id="r1"); init_state(rp, "g", 3)
+    append_round(rp, {"round": 1, "composite": 0.8, "quality": 6.0, "gate_pass_rates": {}, "cases": [], "judge_means": {}})
+    append_round(rp, {"round": 2, "composite": 0.8, "quality": 9.0, "gate_pass_rates": {}, "cases": [], "judge_means": {}})
+    assert recompute_best(rp, baseline_quality=None, tolerance=0.5) == 2   # higher quality wins tie
+    assert load_scores(rp)["best_round"] == 2
+
+def test_recompute_best_excludes_quality_regressed(tmp_path):
+    rp = RunPaths(base=str(tmp_path), run_id="r1"); init_state(rp, "g", 3)
+    append_round(rp, {"round": 1, "composite": 0.7, "quality": 8.0, "gate_pass_rates": {}, "cases": [], "judge_means": {}})
+    append_round(rp, {"round": 2, "composite": 0.95, "quality": 4.0, "gate_pass_rates": {}, "cases": [], "judge_means": {}})
+    # baseline_quality 8.0, tol 0.5 -> round 2 (4.0 < 7.5) is regressed -> excluded; best = round 1
+    assert recompute_best(rp, baseline_quality=8.0, tolerance=0.5) == 1
+    assert load_scores(rp)["best_round"] == 1
+
+def test_recompute_best_no_quality_falls_back_to_composite(tmp_path):
+    rp = RunPaths(base=str(tmp_path), run_id="r1"); init_state(rp, "g", 3)
+    append_round(rp, {"round": 1, "composite": 0.4, "gate_pass_rates": {}, "cases": [], "judge_means": {}})
+    append_round(rp, {"round": 2, "composite": 0.8, "gate_pass_rates": {}, "cases": [], "judge_means": {}})
+    assert recompute_best(rp, baseline_quality=None, tolerance=0.5) == 2
