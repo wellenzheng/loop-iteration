@@ -5,22 +5,17 @@ description: Interactive setup for the self-iterate loop. Reads the current repo
 
 # self-iterate-setup (interactive)
 
-You bootstrap a self-iterate eval spec for the agent in the user's current repo (cwd), then resolve
-its Python env. PROPOSE drafts and CONFIRM each with the user before writing — never silently invent
-an optimization target.
-
-The flow: read the user's repo to detect the agent's kind → pick the matching adapter below → fill
-its `agent:` config from what you read (writing the shim / `adapter.py` where the template shows) →
-propose the eval spec → write all required files → run `setup`, `validate-spec`, `smoke`. The
-adapter contracts below are complete — copy/adapt them from the user's code.
+You bootstrap a self-iterate eval spec for the agent in the user's current repo (cwd). Three phases:
+**确认** (confirm each piece with the user) → **准备** (write all files) → **校验** (verify the agent
+is correctly callable). PROPOSE drafts and CONFIRM — never silently invent an optimization target.
 
 Investigate-first: read the user's repo to infer + propose every config value; the user confirms or
 tweaks. Reserve open-ended questions for the GOAL (user intent) and WHICH agent when several exist.
 
 ## Adapter wiring
 
-Pick the adapter by the agent's kind. Each entry is the complete `agent:` block for goal.yaml plus
-any script to write. Copy/adapt it from the user's code.
+Pick the adapter by the agent's kind (step 2). Each entry is the complete `agent:` block for
+goal.yaml plus any script to write. Copy/adapt it from the user's code.
 
 | Agent kind | `agent.type` | extra file to write? |
 |---|---|---|
@@ -114,7 +109,7 @@ def stop():
 
 Write every one of these to `.self-iterate/<goal>/` (none may be missing):
 - `goal.yaml` — `threshold`, `max_rounds`, `regression: block`, `weights` (gates heavy + ≥1 judge
-  dim), `agent:` (from the adapter section above), `harness:` (only files that reach the agent),
+  dim), `agent:` (from the adapter section), `harness:` (only files that reach the agent),
   `quality_tolerance: 0.5`.
 - `cases.json` — non-empty list of `{id, query, expected?}` (3-6 cases probing the goal).
 - `gates.py` — `GATES = {name: fn}` where `fn(result, case) -> {"passed": bool}`, reading
@@ -126,37 +121,47 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
 
 ## Workflow
 
-1. **Read the user's repo.** Detect the agent's kind + harness + entry: harness candidates
+### 阶段一 · 确认（与用户逐项确认）
+
+1. **阅读 repo.** Skim the user's repo for the agent's harness + entry: harness candidates
    (CLAUDE.md, AGENTS.md, .claude/skills, skills/, src/prompts), entry signals (pyproject scripts,
-   a CLI, an importable module, a local HTTP service / FastAPI route). List the agents if several.
-   Note an existing `.self-iterate/<goal>/` (ask reuse/overwrite).
+   a CLI, an importable module, a local HTTP service / FastAPI route). List the agents if several;
+   note an existing `.self-iterate/<goal>/` (ask reuse/overwrite).
+2. **确认 agent 类型.** Match the agent to an adapter in the table above. CONFIRM the adapter
+   choice + the `agent:` config with the user.
+3. **询问 goal.** Ask the optimization target (user intent — not inferable). Confirm WHICH agent if
+   several (don't default). Propose a kebab-case `<goal>` dir name; CONFIRM.
+4. **询问评测标准 (rubric).** Propose + CONFIRM the gates (programmatic, verifiable, reading
+   `result["output"]`) and the judge dims (LLM 0-10 on the output). These become `gates.py` +
+   `judge.md`.
+5. **询问评测入口.** Propose + CONFIRM how cases invoke the agent — the adapter entry (start cmd /
+   endpoint+request / shim / adapter.py). Fill it by reading the user's code (see Adapter wiring).
+   This is what step 7 writes.
+6. **询问评测集.** Propose + CONFIRM the eval cases (3-6 probing the goal; ask the user for real
+   representative inputs/outputs). These become `cases.json`.
 
-2. **Pick the adapter** from the table by the agent's kind. Read the user's code to fill the
-   `agent:` block (and write the shim/adapter.py where the template shows). CONFIRM the choice.
+### 阶段二 · 准备（产出全部文件）
 
-3. **Ask the goal.** Confirm WHICH agent (if several — don't default), then ask the optimization
-   target (user intent). Propose a kebab-case `<goal>` dir name; CONFIRM.
+7. **适配 agent.** Write the adapter so the agent is callable with the variant harness: the
+   `agent:` block in goal.yaml + the shim (`python-import`) / `adapter.py` (`custom`) / start cmd
+   (`local-service`), filled from the confirmed entry (step 5). Read the user's agent code to fill
+   it.
+8. **适配评测数据.** Write `cases.json`, `gates.py`, `judge.md`, `quality.md`, `goal.yaml` — all
+   matched to the confirmed goal + agent (Required files checklist — none missing).
 
-4. **Propose the eval spec** from the templates above (goal.yaml/cases.json/gates.py/judge.md/
-   quality.md + the adapter file). CONFIRM each file before writing.
+### 阶段三 · 校验（能否正确调用 agent）
 
-5. **Write ALL required files** to `.self-iterate/<goal>/`.
-
-6. **Resolve the Python env:**
+9. **校验.** Resolve the env, static-check, then smoke-run one case to verify the agent is
+   correctly callable with the variant harness:
    ```
    python <plugin>/scripts/loop_iter/cli.py setup --eval .self-iterate/<goal>
-   ```
-   Picks `agent.venv` if set else bootstraps `.self-iterate/.venv`; records `.self-iterate/.python`.
-
-7. **Validate + smoke** under the recorded interpreter:
-   ```
    "$(cat .self-iterate/.python)" <plugin>/scripts/loop_iter/cli.py validate-spec --eval .self-iterate/<goal>
    "$(cat .self-iterate/.python)" <plugin>/scripts/loop_iter/cli.py smoke --eval .self-iterate/<goal>
    ```
-   Fix problems until `validate-spec` is valid and `smoke` runs case[0] without error (for
+   Fix problems until `validate-spec` is valid AND `smoke` runs case[0] without error (for
    local-service/custom it starts the service, calls case[0], stops). Only then is setup done.
 
-8. **Report.** Spec ready at `.self-iterate/<goal>/`; next step `/self-iterate start <goal>`.
+**Report.** Spec ready at `.self-iterate/<goal>/`; next step `/self-iterate start <goal>`.
 
 ## Rules
 - Produce ALL required files — none may be missing.
