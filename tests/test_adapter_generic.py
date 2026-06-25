@@ -448,3 +448,97 @@ def test_service_adapter_http_error_includes_body(tmp_path):
         ad.stop()
     finally:
         srv.shutdown()
+
+
+def test_load_adapter_returns_wrapper_for_adapter_py(tmp_path):
+    from loop_iter.adapter_generic import load_adapter, _UserScriptAdapter, ServiceAdapter
+    ev = tmp_path / "g"; ev.mkdir()
+    (ev / "adapter.py").write_text(
+        "def start(worktree):\n    return 9999\n"
+        "def run_case(case, worktree):\n    return {'case_id': case['id'], 'output': 'x', 'trace': {}, 'error': None}\n"
+        "def stop():\n    pass\n")
+    ad = load_adapter(str(ev))
+    assert isinstance(ad, _UserScriptAdapter)
+    assert isinstance(ad, ServiceAdapter)
+    assert ad.start("/tmp/wt") == 9999
+    assert ad.run_case({"id": "c1"}, "/tmp/wt")["output"] == "x"
+    ad.stop()
+
+
+def test_load_adapter_none_when_no_adapter_py(tmp_path):
+    from loop_iter.adapter_generic import load_adapter
+    ev = tmp_path / "g"; ev.mkdir()
+    assert load_adapter(str(ev)) is None
+
+
+def test_load_adapter_raises_if_missing_lifecycle_fn(tmp_path):
+    import pytest
+    from loop_iter.adapter_generic import load_adapter
+    ev = tmp_path / "g"; ev.mkdir()
+    (ev / "adapter.py").write_text(
+        "def start(worktree):\n    pass\n"
+        "def run_case(case, worktree):\n    return {}\n")
+    with pytest.raises(ValueError, match="stop"):
+        load_adapter(str(ev))
+
+
+def test_build_run_case_prefers_adapter_py_over_run_case_py(tmp_path):
+    from loop_iter.adapter_generic import build_run_case, _UserScriptAdapter
+    ev = tmp_path / "g"; ev.mkdir()
+    (ev / "adapter.py").write_text(
+        "def start(w): return 1\n"
+        "def run_case(c, w): return {'case_id': c['id'], 'output': 'adapter', 'trace': {}, 'error': None}\n"
+        "def stop(): pass\n")
+    (ev / "run_case.py").write_text(
+        "def run_case(case, worktree, harness):\n    return {'case_id': case['id'], 'output': 'percase', 'trace': {}, 'error': None}\n")
+    rc = build_run_case(str(ev), {"type": "custom"}, ["CLAUDE.md"])
+    assert isinstance(rc, _UserScriptAdapter)
+    assert rc.run_case({"id": "c1"}, "/tmp/wt")["output"] == "adapter"
+
+
+def test_build_run_case_falls_back_to_run_case_py_when_no_adapter(tmp_path):
+    from loop_iter.adapter_generic import build_run_case, _UserScriptAdapter
+    ev = tmp_path / "g"; ev.mkdir()
+    (ev / "run_case.py").write_text(
+        "def run_case(case, worktree, harness):\n    return {'case_id': case['id'], 'output': 'percase', 'trace': {}, 'error': None}\n")
+    rc = build_run_case(str(ev), {"type": "custom"}, ["CLAUDE.md"])
+    assert not isinstance(rc, _UserScriptAdapter)
+    assert rc({"id": "c1"}, "/tmp/wt")["output"] == "percase"
+
+
+def test_user_script_adapter_runs_through_run_cases_per_round(tmp_path):
+    from loop_iter.case_runner import run_cases
+    from loop_iter.adapter_generic import build_run_case
+    import tempfile, os
+    ev = tmp_path / "g"; ev.mkdir()
+    (ev / "adapter.py").write_text(
+        "STATE = {'started': 0, 'stopped': 0, 'calls': []}\n"
+        "def start(w):\n    STATE['started'] += 1\n    return 8000\n"
+        "def run_case(c, w):\n    STATE['calls'].append(c['id']); return {'case_id': c['id'], 'output': 'ans', 'trace': {}, 'error': None}\n"
+        "def stop():\n    STATE['stopped'] += 1\n")
+    gates_py = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False); gates_py.write("GATES={}\n"); gates_py.close()
+    try:
+        rc = build_run_case(str(ev), {"type": "custom"}, [])
+        # rc is a _UserScriptAdapter; its ._mod is the loaded adapter.py module whose STATE
+        # the lifecycle mutates. (Re-loading the file would give a separate module instance.)
+        mod = rc._mod
+        out = run_cases([{"id": "c1", "query": "q"}, {"id": "c2", "query": "q"}], "/tmp/wt",
+                        gates_py.name, "j", {"gates": 1.0}, run_case_fn=rc, judge_case_fn=lambda *a, **k: [])
+        assert mod.STATE["started"] == 1
+        assert mod.STATE["stopped"] == 1
+        assert mod.STATE["calls"] == ["c1", "c2"]
+        assert out["cases"][0]["output"] == "ans"
+    finally:
+        os.unlink(gates_py.name)
+
+
+def test_user_script_adapter_stop_never_raises(tmp_path):
+    """_UserScriptAdapter.stop() must never raise (called in finally; matches ServiceAdapter)."""
+    from loop_iter.adapter_generic import load_adapter
+    ev = tmp_path / "g"; ev.mkdir()
+    (ev / "adapter.py").write_text(
+        "def start(w): return 1\n"
+        "def run_case(c, w): return {'case_id': c['id'], 'output': '', 'trace': {}, 'error': None}\n"
+        "def stop(): raise RuntimeError('user stop boom')\n")
+    ad = load_adapter(str(ev))
+    ad.stop(); ad.stop()  # raising user stop swallowed; idempotent
