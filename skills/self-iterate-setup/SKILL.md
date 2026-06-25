@@ -98,7 +98,10 @@ invent an optimization target. Run cli under the plugin's interpreter when neede
    python <plugin>/scripts/loop_iter/cli.py smoke --eval .self-iterate/<goal>
    ```
    It runs ONE case through the resolved adapter (for local-service: starts the service from the
-   repo, POSTs case[0], stops). If it errors, fix the entry/config and re-run until non-error. Only
+   repo, POSTs case[0], stops).
+   (smoke starts from the repo to verify the baseline entry; the loop's case-run starts the service
+   from the worktree each round to apply the variant harness.)
+   If it errors, fix the entry/config and re-run until non-error. Only
    then is setup done — this catches a broken entry before `/self-iterate start` burns real calls.
 
 8. **Report.** Tell the user the spec is ready at `.self-iterate/<goal>/` and the next step is

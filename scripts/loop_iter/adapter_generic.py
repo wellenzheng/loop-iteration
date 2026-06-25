@@ -188,7 +188,13 @@ class ServiceAdapter:
                 except Exception:
                     pass
                 time.sleep(0.5)
-            raise RuntimeError(f"service not ready at {ready} within {timeout}s")
+            err = ""
+            if self.proc is not None and self.proc.stderr is not None:
+                try:
+                    err = self.proc.stderr.read().decode(errors="replace")[:300]
+                except Exception:
+                    err = ""
+            raise RuntimeError(f"service not ready at {ready} within {timeout}s; stderr: {err}")
         time.sleep(1.0)
         return self.port
 
@@ -202,7 +208,7 @@ class ServiceAdapter:
                            timeout=float(self.config.get("timeout", 120)))
             data = r.json() if r.text else {}
             output = _extract(data, self.config.get("response_path", ""))
-            error = None if r.status_code < 400 else f"http {r.status_code}"
+            error = None if r.status_code < 400 else f"http {r.status_code}: {r.text[:200]}"
         except Exception as exc:
             output, error = "", f"local-service run_case error: {exc!r}"
         if error is not None:

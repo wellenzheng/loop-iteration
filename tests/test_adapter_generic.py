@@ -416,3 +416,35 @@ def test_service_adapter_stop_kills_process_group(tmp_path):
     except (ProcessLookupError, PermissionError, OSError):
         still_alive = False
     assert not still_alive, "stop() left an orphan process in the service's group"
+
+
+def test_service_adapter_http_error_includes_body(tmp_path):
+    """A 4xx/5xx response body snippet is included in the error for debuggability."""
+    port = _free_port()
+
+    class _ErrHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        def do_POST(self):
+            body = b'{"error":"internal boom"}'
+            self.send_response(500); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body)
+        def do_GET(self):
+            self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"ok")
+        def log_message(self, *a): pass
+
+    srv = _tiny_server(port, _ErrHandler)
+    try:
+        cfg = {"type": "local-service", "start": ["bash", "-c", "echo x"], "port": port,
+               "ready": f"http://localhost:{port}/", "endpoint": f"http://localhost:{port}/v1/chat",
+               "request": '{"query":"{query}"}', "response_path": "data.answer", "timeout": 10}
+        ad = ServiceAdapter(cfg)
+        ad.start(str(tmp_path))
+        result = ad.run_case({"id": "c1", "query": "hi"}, str(tmp_path))
+        assert result["error"] is not None
+        assert "500" in result["error"]
+        assert "internal boom" in result["error"]   # body snippet included
+        assert result["output"] == ""                # cleared on error
+        ad.stop()
+    finally:
+        srv.shutdown()
