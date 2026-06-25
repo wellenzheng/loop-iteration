@@ -35,7 +35,10 @@ def check_and_advance(rp: RunPaths, goal_path: str, best_gate_rates: dict | None
     not met & round >= max_rounds -> done (met=false). Refuses if phase != goalcheck.
     Quality guardrail: if baseline_quality is set and this round's quality regressed below
     baseline - tolerance, met is forced False (even if composite met). Quality never enters
-    the composite; it only gates met and breaks ties in best selection."""
+    the composite; it only gates met and breaks ties in best selection.
+    A round with no quality signal (None — e.g. flaky quality-judge degraded, or no quality.md)
+    never triggers the guardrail: met can still pass and the round can be best (quality is treated
+    as absent, not as failing). This mirrors the judge's degrade-to-None contract."""
     goal = yaml.safe_load(open(goal_path))
     st = load_state(rp)
     if st["phase"] != "goalcheck":
@@ -64,12 +67,13 @@ def check_and_advance(rp: RunPaths, goal_path: str, best_gate_rates: dict | None
         st["phase"] = "maker"
     st["updated_at"] = _now()
     write_state(rp, st)
-    # best selection: quality tiebreak + exclude regressed
-    best_round = recompute_best(rp, bq, tol)
-    if st["phase"] == "done" and best_round is not None:
-        data = load_scores(rp)
-        br = next(r for r in data["rounds"] if r["round"] == best_round)
-        st["best"] = {"round": br["round"], "composite": br["composite"], "worktree": None}
-        write_state(rp, st)
+    # best selection (only at done): quality tiebreak + exclude regressed
+    if st["phase"] == "done":
+        best_round = recompute_best(rp, bq, tol)
+        if best_round is not None:
+            data = load_scores(rp)
+            br = next(r for r in data["rounds"] if r["round"] == best_round)
+            st["best"] = {"round": br["round"], "composite": br["composite"], "worktree": None}
+            write_state(rp, st)
     v["phase"] = st["phase"]
     return v
