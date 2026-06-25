@@ -530,3 +530,15 @@ def test_user_script_adapter_runs_through_run_cases_per_round(tmp_path):
         assert out["cases"][0]["output"] == "ans"
     finally:
         os.unlink(gates_py.name)
+
+
+def test_user_script_adapter_stop_never_raises(tmp_path):
+    """_UserScriptAdapter.stop() must never raise (called in finally; matches ServiceAdapter)."""
+    from loop_iter.adapter_generic import load_adapter
+    ev = tmp_path / "g"; ev.mkdir()
+    (ev / "adapter.py").write_text(
+        "def start(w): return 1\n"
+        "def run_case(c, w): return {'case_id': c['id'], 'output': '', 'trace': {}, 'error': None}\n"
+        "def stop(): raise RuntimeError('user stop boom')\n")
+    ad = load_adapter(str(ev))
+    ad.stop(); ad.stop()  # raising user stop swallowed; idempotent

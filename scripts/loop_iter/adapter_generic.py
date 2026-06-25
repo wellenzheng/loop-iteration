@@ -270,7 +270,12 @@ class _UserScriptAdapter(ServiceAdapter):
         return self._mod.run_case(case, worktree)
 
     def stop(self) -> None:
-        self._mod.stop()
+        # never raises — matches ServiceAdapter.stop's contract (called in finally; a raising
+        # stop would mask the run's own exception). User stop() errors are best-effort.
+        try:
+            self._mod.stop()
+        except Exception:
+            pass
 
 
 def load_adapter(eval_dir: str):
