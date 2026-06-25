@@ -200,3 +200,33 @@ def test_missing_pyyaml_reports_clear_problem(tmp_path, monkeypatch):
     assert v["valid"] is False
     assert any("pyyaml" in p for p in v["problems"])
     assert not any("unparseable" in p for p in v["problems"])
+
+
+def test_adapter_py_optional_no_warning(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d)
+    v = validate_spec(str(d))
+    assert v["valid"] is True
+    assert not any("adapter.py" in w for w in v["warnings"])
+
+
+def test_adapter_py_present_no_problem(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d)
+    (d / "adapter.py").write_text(
+        "def start(w): pass\n"
+        "def run_case(c, w): return {}\n"
+        "def stop(): pass\n")
+    v = validate_spec(str(d))
+    assert v["valid"] is True
+
+
+def test_adapter_py_info_warning_when_present(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d)
+    (d / "adapter.py").write_text(
+        "def start(w): pass\n"
+        "def run_case(c, w): return {}\n"
+        "def stop(): pass\n")
+    v = validate_spec(str(d))
+    assert any("adapter.py" in w for w in v["warnings"])

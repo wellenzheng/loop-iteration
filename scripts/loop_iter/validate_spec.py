@@ -123,4 +123,10 @@ def validate_spec(eval_dir: str) -> dict:
     elif not qpath.read_text().strip():
         problems.append("quality.md: empty")
 
+    # adapter.py (optional bespoke-protocol lifecycle script)
+    adapter_path = d / "adapter.py"
+    if adapter_path.exists():
+        warnings.append("adapter.py present: bespoke-protocol lifecycle script "
+                         "(start/run_case/stop) — not statically checked; run `smoke` to verify")
+
     return {"valid": not problems, "problems": problems, "warnings": warnings}
