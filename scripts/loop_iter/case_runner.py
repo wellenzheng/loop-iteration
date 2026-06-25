@@ -26,6 +26,8 @@ def run_cases(cases: list[dict], worktree: str,
             judged = judge_case_fn(result, case, judge_md, llm_call)
             case_scores.append({
                 "case_id": case["id"],
+                "output": result.get("output", ""),
+                "trace": result.get("trace") or {},
                 "gates": gate_results,
                 "judge": judged or [],
                 "error": result.get("error"),
