@@ -173,7 +173,7 @@ class ServiceAdapter:
         self.port = int(self.config.get("port") or 0) or self._free_port()
         cmd = [self._sub(str(c)) for c in self.config.get("start", [])]
         if cmd:
-            self.proc = subprocess.Popen(cmd, cwd=worktree,
+            self.proc = subprocess.Popen(cmd, cwd=worktree, start_new_session=True,
                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         ready = self._sub(str(self.config.get("ready") or ""))
         timeout = float(self.config.get("timeout", 120))
@@ -205,19 +205,32 @@ class ServiceAdapter:
             error = None if r.status_code < 400 else f"http {r.status_code}"
         except Exception as exc:
             output, error = "", f"local-service run_case error: {exc!r}"
+        if error is not None:
+            output = ""
         return {"case_id": case.get("id"), "output": "" if output is None else str(output),
                 "trace": {}, "error": error}
 
     def stop(self) -> None:
-        if self.proc is not None and self.proc.poll() is None:
+        import os, signal
+        proc = self.proc
+        if proc is not None and proc.poll() is None:
             try:
-                self.proc.terminate()
-                self.proc.wait(timeout=5)
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
             except Exception:
                 try:
-                    self.proc.kill()
+                    proc.terminate()
                 except Exception:
                     pass
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
         self.proc = None
 
 

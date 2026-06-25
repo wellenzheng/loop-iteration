@@ -384,3 +384,35 @@ def test_build_run_case_returns_service_adapter_for_local_service(tmp_path):
                          "endpoint": "http://127.0.0.1:1/", "request": "{}",
                          "response_path": "", "timeout": 2}, [])
     assert isinstance(ad, ServiceAdapter)
+
+
+def test_service_adapter_stop_kills_process_group(tmp_path):
+    """stop() must kill the whole process group, not just the direct child — a start cmd that
+    forks a long-running child must not leave an orphan."""
+    import subprocess, time
+    # start cmd: bash that backgrounds a sleep and stays alive briefly via the sleep child
+    # Use a start cmd that forks a long-running child, then verify the child is gone after stop.
+    cfg = {
+        "type": "local-service",
+        "start": ["bash", "-c", "sleep 30 & wait"],   # forks a sleep 30 child, waits on it
+        "port": _free_port(),
+        "ready": "",  # no ready check
+        "endpoint": "http://127.0.0.1:1/",
+        "request": "{}", "response_path": "", "timeout": 2,
+    }
+    ad = ServiceAdapter(cfg)
+    ad.start(str(tmp_path))
+    # the bash process + its sleep child are alive
+    import os, signal
+    pgid = os.getpgid(ad.proc.pid)
+    ad.stop()
+    # give it a moment to die
+    time.sleep(0.5)
+    # killing the group again should now find no live process (process group gone) -> no exception
+    try:
+        os.killpg(pgid, 0)  # signal 0 = existence check
+        # if we reach here without exception, something in the group is still alive -> fail
+        still_alive = True
+    except (ProcessLookupError, PermissionError, OSError):
+        still_alive = False
+    assert not still_alive, "stop() left an orphan process in the service's group"
