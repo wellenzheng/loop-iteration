@@ -257,7 +257,12 @@ class _UserScriptAdapter(ServiceAdapter):
     """Wraps a .self-iterate/<goal>/adapter.py that defines start/run_case/stop — a per-round
     lifecycle adapter for bespoke protocols (SSE/JWT/custom event format). The plugin calls
     start once per round, run_case per case, stop in finally — same as the built-in ServiceAdapter.
-    The bespoke protocol lives entirely in the agent's adapter.py (setup-authored)."""
+    The bespoke protocol lives entirely in the agent's adapter.py (setup-authored).
+
+    Subclasses ServiceAdapter ONLY so the existing isinstance(.., ServiceAdapter) lifecycle path
+    in run_cases/smoke drives it unchanged — all methods delegate to the module, none of the HTTP
+    machinery is used. NOTE: start()'s return value is IGNORED by the plugin — if run_case needs
+    state from start (port, base URL, auth token), stash it in a module global in adapter.py."""
 
     def __init__(self, mod):
         super().__init__({})
