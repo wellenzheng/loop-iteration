@@ -6,8 +6,9 @@ description: Interactive setup for the self-iterate loop. Reads the current repo
 # self-iterate-setup (interactive)
 
 You bootstrap a self-iterate eval spec for the agent in the user's current repo (cwd). Three phases:
-**确认** (confirm each piece with the user) → **准备** (write all files) → **校验** (verify the agent
-is correctly callable). PROPOSE drafts and CONFIRM — never silently invent an optimization target.
+**Confirm** (confirm each piece with the user) → **Prepare** (write all files) → **Verify** (verify
+the agent is correctly callable). PROPOSE drafts and CONFIRM — never silently invent an optimization
+target.
 
 Investigate-first: read the user's repo to infer + propose every config value; the user confirms or
 tweaks. Reserve open-ended questions for the GOAL (user intent) and WHICH agent when several exist.
@@ -121,37 +122,37 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
 
 ## Workflow
 
-### 阶段一 · 确认（与用户逐项确认）
+### Phase 1 · Confirm (with the user, item by item)
 
-1. **阅读 repo.** Skim the user's repo for the agent's harness + entry: harness candidates
+1. **Read the repo.** Skim the user's repo for the agent's harness + entry: harness candidates
    (CLAUDE.md, AGENTS.md, .claude/skills, skills/, src/prompts), entry signals (pyproject scripts,
    a CLI, an importable module, a local HTTP service / FastAPI route). List the agents if several;
    note an existing `.self-iterate/<goal>/` (ask reuse/overwrite).
-2. **确认 agent 类型.** Match the agent to an adapter in the table above. CONFIRM the adapter
+2. **Confirm the agent type.** Match the agent to an adapter in the table above. CONFIRM the adapter
    choice + the `agent:` config with the user.
-3. **询问 goal.** Ask the optimization target (user intent — not inferable). Confirm WHICH agent if
-   several (don't default). Propose a kebab-case `<goal>` dir name; CONFIRM.
-4. **询问评测标准 (rubric).** Propose + CONFIRM the gates (programmatic, verifiable, reading
-   `result["output"]`) and the judge dims (LLM 0-10 on the output). These become `gates.py` +
-   `judge.md`.
-5. **询问评测入口.** Propose + CONFIRM how cases invoke the agent — the adapter entry (start cmd /
-   endpoint+request / shim / adapter.py). Fill it by reading the user's code (see Adapter wiring).
-   This is what step 7 writes.
-6. **询问评测集.** Propose + CONFIRM the eval cases (3-6 probing the goal; ask the user for real
-   representative inputs/outputs). These become `cases.json`.
+3. **Ask the goal.** Ask the optimization target (user intent — not inferable). Confirm WHICH agent
+   if several (don't default). Propose a kebab-case `<goal>` dir name; CONFIRM.
+4. **Ask the eval criteria (rubric).** Propose + CONFIRM the gates (programmatic, verifiable,
+   reading `result["output"]`) and the judge dims (LLM 0-10 on the output). These become `gates.py`
+   + `judge.md`.
+5. **Ask the eval entry.** Propose + CONFIRM how cases invoke the agent — the adapter entry (start
+   cmd / endpoint+request / shim / adapter.py). Fill it by reading the user's code (see Adapter
+   wiring). This is what step 7 writes.
+6. **Ask the eval set (cases).** Propose + CONFIRM the eval cases (3-6 probing the goal; ask the
+   user for real representative inputs/outputs). These become `cases.json`.
 
-### 阶段二 · 准备（产出全部文件）
+### Phase 2 · Prepare (produce all files)
 
-7. **适配 agent.** Write the adapter so the agent is callable with the variant harness: the
+7. **Adapt the agent.** Write the adapter so the agent is callable with the variant harness: the
    `agent:` block in goal.yaml + the shim (`python-import`) / `adapter.py` (`custom`) / start cmd
    (`local-service`), filled from the confirmed entry (step 5). Read the user's agent code to fill
    it.
-8. **适配评测数据.** Write `cases.json`, `gates.py`, `judge.md`, `quality.md`, `goal.yaml` — all
-   matched to the confirmed goal + agent (Required files checklist — none missing).
+8. **Adapt the eval data.** Write `cases.json`, `gates.py`, `judge.md`, `quality.md`, `goal.yaml` —
+   all matched to the confirmed goal + agent (Required files checklist — none missing).
 
-### 阶段三 · 校验（能否正确调用 agent）
+### Phase 3 · Verify (can the agent be called correctly)
 
-9. **校验.** Resolve the env, static-check, then smoke-run one case to verify the agent is
+9. **Verify.** Resolve the env, static-check, then smoke-run one case to verify the agent is
    correctly callable with the variant harness:
    ```
    python <plugin>/scripts/loop_iter/cli.py setup --eval .self-iterate/<goal>
