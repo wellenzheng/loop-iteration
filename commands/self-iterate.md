@@ -5,10 +5,10 @@ description: Self-iterate the current repo's agent harness toward a goal until a
 # /self-iterate
 
 Usage:
-- `/self-iterate setup` — interactive: reads the repo, proposes the eval spec, confirms with you,
-  writes `.self-iterate/<goal>/`, then resolves the Python env (`agent.venv` or bootstrap) to
-  `.self-iterate/.python`. (The interactive proposer is a separate skill; until it lands, hand-write
-  the spec from `examples/toy/.self-iterate/toy-basic/`.)
+- `/self-iterate setup` — interactive: dispatches the `self-iterate-setup` skill, which reads the
+  repo, proposes the eval spec (goal.yaml/cases.json/gates.py/judge.md/quality.md), confirms each
+  piece with you, writes it to `.self-iterate/<goal>/`, self-validates, then resolves the Python env
+  (`agent.venv` or bootstrap) to `.self-iterate/.python`.
 - `/self-iterate start <goal>` — runs the built-in state-machine loop to completion (baseline →
   maker/checker rounds → goal-check → report), persisting everything under
   `.self-iterate/runs/<run_id>/`. `/self-iterate toward <goal>` is an alias.

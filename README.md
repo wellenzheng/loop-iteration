@@ -59,14 +59,14 @@ This repo **is** a Claude Code plugin that self-iterates any agent's harness
 Place this repo in your Claude Code plugins dir (or your usual plugin-install path).
 Requires Python 3.11+. Then in any repo:
 ```
-/self-iterate setup        # picks the right Python: your agent's `agent.venv` if set (has its own
-                           # deps, e.g. zai_adk), else bootstraps .self-iterate/.venv. Records it in
-                           # .self-iterate/.python. The cli also auto-loads .env (OPENAI_* etc.) — no
-                           # manual sourcing.
+/self-iterate setup        # interactive: reads the repo, proposes the eval spec (goal.yaml/cases.json/
+                           # gates.py/judge.md/quality.md), confirms each with you, writes .self-iterate/<goal>/,
+                           # self-validates, then resolves the Python env (agent.venv or bootstrap -> .self-iterate/.python).
 ```
 
 ### Use it on your agent
-In your agent's repo, write the only thing you need — an eval spec:
+In your agent's repo, run `/self-iterate setup` — it proposes the eval spec for you to confirm. Or
+hand-write it:
 ```
 .self-iterate/<goal>/
   goal.yaml     # threshold, weights, regression, optional agent:/harness: overrides
