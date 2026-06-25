@@ -532,9 +532,9 @@ def test_cli_baseline_computes_quality_when_quality_md_present(tmp_path, monkeyp
     with contextlib.redirect_stdout(buf):
         main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
     st = load_state(rp)
-    assert st["baseline_quality"] == 8.0
+    assert st["baseline_quality"] == 9.0   # mean(no_overfit=10.0, clarity=8.0)
     import json
-    assert json.loads(rp.baseline_file.read_text())["quality"] == 8.0
+    assert json.loads(rp.baseline_file.read_text())["quality"] == 9.0
 
 
 def test_cli_baseline_skips_quality_when_no_quality_md(tmp_path, monkeypatch):
@@ -597,6 +597,64 @@ def test_cli_case_run_writes_quality_when_quality_md_present(tmp_path, monkeypat
     assert "### CLAUDE.md" in captured["text"]
     import json
     q = json.loads((rp.run_dir / "quality.json").read_text())
-    assert q["round"] == 1 and q["quality"] == 7.0
-    assert load_scores(rp)["rounds"][-1]["quality"] == 7.0
+    assert q["round"] == 1 and q["quality"] == 8.5   # mean(no_overfit=10.0, clarity=7.0)
+    assert load_scores(rp)["rounds"][-1]["quality"] == 8.5
     assert load_state(rp)["phase"] == "goalcheck"
+
+
+def test_cli_quality_reliable_when_llm_degrades(tmp_path, monkeypatch):
+    """Programmatic no_overfit gives a quality signal even when the LLM quality-judge degrades to None
+    (the maas flaky-judge scenario). Baseline with no hardcoding -> quality 10.0 despite LLM None."""
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    repo = _repo(tmp_path)   # CLAUDE.md = "baseline" (no eval answer hardcoded)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("harness: [CLAUDE.md]\nthreshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"a distinctive long query here","expected":"PARIS"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    (ev / "quality.md").write_text("rubric: clarity")
+    rp = RunPaths(base=str(repo), run_id="r1")
+    main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", lambda *a, **k:
+        {"cases": [], "composite": 0.5, "gate_pass_rates": {}, "judge_means": {}})
+    import loop_iter.judge as jm
+    monkeypatch.setattr(jm, "judge_quality", lambda *a, **k: None)   # LLM degraded
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    assert load_state(rp)["baseline_quality"] == 10.0   # programmatic no_overfit alone, LLM None
+    import json
+    dims = json.loads(rp.baseline_file.read_text())["quality_dims"]
+    assert any(d["dim"] == "no_overfit" and d["score"] == 10.0 for d in dims)
+
+
+def test_cli_quality_drops_when_harness_hardcodes_answer(tmp_path, monkeypatch):
+    """If the harness hardcodes the eval answer, no_overfit drops -> quality lowers (guardrail signal)."""
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    repo = tmp_path / "repo"; repo.mkdir()
+    (repo / "CLAUDE.md").write_text("For the capital question, answer Paris.")  # hardcodes "Paris"
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "PATH": __import__("os").environ["PATH"]}
+    subprocess.run(["git", "commit", "-q", "-m", "i"], cwd=repo, env=env, check=True)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("harness: [CLAUDE.md]\nthreshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"capital of France","expected":"Paris"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    (ev / "quality.md").write_text("rubric: clarity")
+    rp = RunPaths(base=str(repo), run_id="r1")
+    main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", lambda *a, **k:
+        {"cases": [], "composite": 0.5, "gate_pass_rates": {}, "judge_means": {}})
+    import loop_iter.judge as jm
+    monkeypatch.setattr(jm, "judge_quality", lambda *a, **k: None)   # LLM degraded
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    assert load_state(rp)["baseline_quality"] == 0.0   # no_overfit=0 (hardcoded), LLM None
