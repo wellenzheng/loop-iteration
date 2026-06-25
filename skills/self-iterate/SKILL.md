@@ -26,6 +26,8 @@ Use `"$PY"` for every cli call below. `<plugin>` = this plugin's root.
    harness files themselves on a quality rubric → `baseline_quality` / per-round `quality.json`. A
    round whose quality regresses below `baseline_quality − quality_tolerance` (default 0.5) cannot
    satisfy `met` and cannot be the best variant — the guardrail against overfitting/harness rot.
+   The `no_overfit` dimension is detected programmatically (hardcoded-answer check), so it stays
+   reliable even when the LLM quality-judge degrades.
    No `quality.md` → guardrail inactive.)*
 3. **Per round, while `phase != done`:**
    a. **Stage + maker.** `apply-variant` for a worktree, then dispatch the `harness-rewriter` agent on the worktree (round 1: "cold start — sharpen the baseline harness to satisfy the gates"; later rounds: pass the failing gates + weak dims from the previous `case-run`).

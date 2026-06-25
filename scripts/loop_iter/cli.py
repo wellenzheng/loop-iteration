@@ -65,22 +65,11 @@ def _case_run(args):
                     run_case_fn=rc, llm_call=llm_call)
     out["round"] = args.round
     # harness-quality guardrail (opt-in via quality.md); score the VARIANT's harness in the worktree
-    quality_md_path = ev / "quality.md"
-    if quality_md_path.exists():
-        from loop_iter.judge import judge_quality, quality_mean
-        from loop_iter.adapter_generic import harness_text
-        qdims = judge_quality(harness_text(args.eval, args.base, args.worktree),
-                              quality_md_path.read_text(), llm_call)
-        out["quality"] = quality_mean(qdims)
-        out["quality_dims"] = qdims or []
-        if rp.state_file.exists():
-            (rp.run_dir / "quality.json").write_text(
-                json.dumps({"round": args.round, "quality": out["quality"],
-                            "quality_dims": qdims or []}, indent=2, ensure_ascii=False))
-    else:
-        out["quality"] = None
-        out["quality_dims"] = []
+    out["quality"], out["quality_dims"] = _compute_quality(ev, args.base, args.worktree, cases, llm_call)
     if rp.state_file.exists():
+        (rp.run_dir / "quality.json").write_text(
+            json.dumps({"round": args.round, "quality": out["quality"],
+                        "quality_dims": out["quality_dims"]}, indent=2, ensure_ascii=False))
         append_round(rp, out)
         advance_phase(rp, "eval", "goalcheck")
     else:
@@ -161,6 +150,25 @@ def _init(args):
     print(json.dumps({"run_id": args.run_id, "phase": st["phase"], "max_rounds": st["max_rounds"]}))
 
 
+def _compute_quality(ev, repo_root: str, read_root: str, cases: list, llm_call):
+    """Harness quality (opt-in via quality.md): programmatic no_overfit (reliable) + LLM dims per
+    the rubric (degradable). The programmatic no_overfit overrides any LLM no_overfit dim. Returns
+    (quality_mean_or_None, dims_list). No quality.md -> (None, []). When the LLM degrades, no_overfit
+    alone still yields a non-None quality so the guardrail can fire on hardcoded-answer regressions."""
+    from loop_iter.judge import judge_quality, quality_mean
+    from loop_iter.adapter_generic import harness_text
+    from loop_iter.quality_prog import no_overfit_score
+    quality_md_path = ev / "quality.md"
+    if not quality_md_path.exists():
+        return None, []
+    htext = harness_text(str(ev), repo_root, read_root)
+    prog = [{"dim": "no_overfit", "score": no_overfit_score(htext, cases)}]
+    llm_dims = [d for d in (judge_quality(htext, quality_md_path.read_text(), llm_call) or [])
+                if d.get("dim") != "no_overfit"]
+    all_dims = prog + llm_dims
+    return quality_mean(all_dims), all_dims
+
+
 def _baseline(args):
     import yaml
     from loop_iter.state import RunPaths, load_state, advance_phase
@@ -180,18 +188,7 @@ def _baseline(args):
     out = run_cases(cases, args.base, str(ev / "gates.py"),
                     (ev / "judge.md").read_text(), goal["weights"],
                     run_case_fn=rc, llm_call=llm_call)
-    # harness-quality guardrail (opt-in via quality.md)
-    quality_md_path = ev / "quality.md"
-    if quality_md_path.exists():
-        from loop_iter.judge import judge_quality, quality_mean
-        from loop_iter.adapter_generic import harness_text
-        qdims = judge_quality(harness_text(args.eval, args.base, args.base),
-                              quality_md_path.read_text(), llm_call)
-        out["quality"] = quality_mean(qdims)
-        out["quality_dims"] = qdims or []
-    else:
-        out["quality"] = None
-        out["quality_dims"] = []
+    out["quality"], out["quality_dims"] = _compute_quality(ev, args.base, args.base, cases, llm_call)
     rp.baseline_file.write_text(json.dumps(out, indent=2, ensure_ascii=False))
     advance_phase(rp, "baseline", "maker",
                   updates={"round": 1, "baseline_composite": out["composite"],
