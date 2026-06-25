@@ -239,6 +239,13 @@ def _report(args):
                       "best_round": best_round, "met": st["met"]}))
 
 
+def _validate_spec(args):
+    from loop_iter.validate_spec import validate_spec
+    v = validate_spec(args.eval)
+    print(json.dumps(v, indent=2, ensure_ascii=False))
+    raise SystemExit(0 if v["valid"] else 1)
+
+
 def _load_dotenv(path: str = ".env") -> None:
     """Load KEY=VALUE from .env into os.environ via setdefault (explicit env wins).
     Shell-safe python parse (zsh `source` chokes on some .env lines). No-op if absent."""
@@ -310,6 +317,10 @@ def main(argv=None):
     s.add_argument("--run-id", required=True)
     s.add_argument("--base", default=".")
     s.set_defaults(func=_report)
+
+    s = sub.add_parser("validate-spec")
+    s.add_argument("--eval", required=True)
+    s.set_defaults(func=_validate_spec)
 
     a = ap.parse_args(argv)
     a.func(a)
