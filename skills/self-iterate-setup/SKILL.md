@@ -1,149 +1,176 @@
 ---
 name: self-iterate-setup
-description: Interactive setup for the self-iterate loop. Reads the current repo, detects the agent's entry type, asks the user for the optimization goal, proposes a complete eval spec (goal.yaml/cases.json/gates.py/judge.md/quality.md), confirms each piece, writes it to .self-iterate/<goal>/, self-validates via cli `validate-spec`, then resolves the Python env via cli `setup`. Use when the user runs "/self-iterate setup".
+description: Interactive setup for the self-iterate loop. Reads the current repo, detects the agent's entry type, asks the user for the optimization goal, proposes a complete eval spec (goal.yaml/cases.json/gates.py/judge.md/quality.md + the adapter's entry file), confirms each piece, writes it to .self-iterate/<goal>/, self-validates via cli `validate-spec`, then resolves the Python env via cli `setup`. Use when the user runs "/self-iterate setup".
 ---
 
 # self-iterate-setup (interactive)
 
 You bootstrap a self-iterate eval spec for the agent in the user's current repo (cwd), then resolve
 its Python env. You PROPOSE drafts and CONFIRM each with the user before writing — never silently
-invent an optimization target. Run cli under the plugin's interpreter when needed:
-`<plugin>/scripts/loop_iter/cli.py`. Run `setup` first (resolves `.self-iterate/.python`), then run
-`validate-spec` under that interpreter.
+invent an optimization target.
 
-**Investigate-first.** Read the repo's code to INFER and PROPOSE every config value (entry type,
-start command, port, request/response shape, harness files, even candidate gates). The user
-CONFIRMS or tweaks your proposals — do NOT ask the user to hand-provide what you can read from the
-code. Reserve open-ended questions for things genuinely not inferable: the optimization GOAL (user
-intent) and WHICH agent when several exist.
+**This skill is the COMPLETE wiring contract.** Everything you need to wire any agent is in the
+"Adapter wiring" section below — the `agent:` blocks and script templates are copy-paste-ready.
+**Do NOT read the plugin's (loop-iteration) source code.** The user must never see the plugin's
+internals. Investigate the USER's agent code (to pick the adapter + fill the config); never
+investigate the plugin.
 
-## Loop mechanics (so you don't re-derive from source)
+**Investigate-first.** Read the user's repo to INFER and PROPOSE every config value (entry type,
+start command, port, request/response shape, harness files, venv). The user CONFIRMS or tweaks —
+do not ask them to hand-provide what's in their code. Reserve open-ended questions for the GOAL
+(user intent) and WHICH agent when several exist.
 
-- The loop creates a FULL git worktree of the repo at baseline each round. The maker edits the
-  worktree's harness files; the source repo is never mutated mid-loop.
-- `variant_dir` / the service launch dir = the worktree (or `worktree/<variant_subdir>` for
-  python-import). This is how a variant harness reaches the running agent.
-- `harness:` in goal.yaml = the files the maker may edit + what snapshot/diff capture. BUT whether
-  an edited file actually REACHES the running agent depends on the adapter:
-  - `claude-p`: agent runs `claude -p` in the worktree cwd → reads CLAUDE.md/skills from there. All
-    harness edits reach.
-  - `local-service`: the service is started FROM the worktree each round → it reads harness from its
-    launch dir. Harness edits reach IF the service reads harness from cwd (confirm with the user).
-  - `python-import`: only `skills_dir=variant_dir` reaches the agent; anything the shim imports via
-    `module_path` (e.g. a system prompt) loads from the repo, NOT the worktree → those harness edits
-    are inert. So for python-import, `harness:` should be only the skills the shim wires to
-    `variant_dir`.
-- So propose `harness:` = only files that actually reach the agent for the detected adapter type.
+## Adapter wiring (self-contained — the full contract)
+
+Pick the adapter by the agent's kind. Each entry is the COMPLETE `agent:` block for goal.yaml plus
+any script you must write. Copy/adapt it from the user's code; do not read the plugin.
+
+| Agent kind | `agent.type` | extra file to write? |
+|---|---|---|
+| Claude-Code-native (CLAUDE.md / .claude/skills) | `claude-p` (default, omit type) | none |
+| Has a CLI (`python -m …`, a bin script) | `command` | none |
+| In-process Python module (importable) | `python-import` | entry shim (write) |
+| Local HTTP service, simple JSON POST + JSON answer | `local-service` | none |
+| Local HTTP service, bespoke (SSE / JWT / custom events) | `custom` | `adapter.py` (write) |
+
+### claude-p — Claude-Code-native agent
+```yaml
+agent:
+  model: claude-haiku-4-5-20251001      # optional
+  permission_mode: bypassPermissions     # optional
+  timeout: 120                           # optional
+```
+`harness:` = the files the agent reads (CLAUDE.md, AGENTS.md, .claude/skills/**/*.md, .claude/agents/**/*.md).
+
+### command — agent has a CLI
+```yaml
+agent:
+  type: command
+  cmd: ["python", "-m", "my_agent", "--skills-dir", "{variant_dir}", "{query}"]
+  variant_subdir: skills                 # optional: harness lives under worktree/<sub>
+```
+`{variant_dir}` = the worktree (or worktree/<variant_subdir>); `{query}` = the case query. The CLI
+must read its harness from `{variant_dir}`. `harness:` = those files.
+
+### python-import — in-process Python module (write a shim)
+```yaml
+agent:
+  type: python-import
+  module: my_entry                       # the shim module name (file: my_entry.py)
+  entry: run                             # function signature: run(query, variant_dir, **extra)
+  module_path: [".", ".self-iterate/<goal>"]   # dirs to find the shim + the agent package
+  venv: .venv                            # venv with the agent's deps (detect .venv/venv/uv)
+  variant_subdir: skills                 # optional
+```
+Write `.self-iterate/<goal>/my_entry.py` (the shim). Investigate the agent's construction code and
+replicate how it's normally built, swapping `skills_dir=variant_dir` so the variant harness applies:
+```python
+def run(query, variant_dir, **extra):
+    # build the agent with skills_dir=variant_dir (the variant harness), run the query,
+    # return the answer text — or a dict {output, trace, error}. Never raise (use error field).
+    ...
+```
+`harness:` = the skills the shim wires to `variant_dir` (e.g. `skills/**/*.md`). NOTE: anything the
+shim imports via `module_path` (e.g. a system prompt) loads from the repo, NOT the worktree — so
+`harness:` should be ONLY the files the shim wires to `variant_dir`.
+
+### local-service — local HTTP, simple JSON POST + JSON answer
+```yaml
+agent:
+  type: local-service
+  start: ["bash", "-c", "cd {worktree} && <launch the service> --port {port}"]
+  port: 0                                # 0 = auto free port
+  ready: "http://localhost:{port}/health"          # polled until HTTP <500 (optional but recommended)
+  endpoint: "http://localhost:{port}/v1/chat"
+  request: '{"query":"{query}"}'         # POST body template; {query} substituted
+  response_path: "data.answer"           # dotted JSON path to the answer text
+  timeout: 120
+```
+The service is started FROM the worktree each round (`{worktree}` substituted, cwd=worktree) so it
+loads the variant harness — it MUST read its harness from its launch dir. `harness:` = those files.
+
+### custom — local HTTP, bespoke protocol (SSE / JWT / custom events)
+```yaml
+agent:
+  type: custom
+```
+Write `.self-iterate/<goal>/adapter.py`. The plugin calls `start` once per round, `run_case` per
+case, `stop` in finally. `start`'s return value is IGNORED — stash any state `run_case` needs
+(port, auth token) in module globals.
+```python
+# adapter.py — bespoke protocol. Investigate the agent's route handler / SSE encoder / auth module.
+_port = None
+def start(worktree):
+    # launch the real service FROM the worktree (variant harness applies). Stash state in globals.
+    global _port
+    _port = ...   # e.g. pick a free port, subprocess the service with cwd=worktree
+def run_case(case, worktree):
+    # call the endpoint with the protocol's auth/headers, parse the bespoke response (SSE events,
+    # etc.) into the answer. Never raise -> return error field.
+    return {"case_id": case["id"], "output": <answer>, "trace": {}, "error": None}
+def stop():
+    # kill the service. Never raises.
+```
+`harness:` = the files the service reads from its launch dir.
+
+## Required files (produce ALL — none may be missing)
+
+Write every one of these to `.self-iterate/<goal>/`:
+- `goal.yaml` — `threshold`, `max_rounds`, `regression: block`, `weights` (gates heavy + ≥1 judge
+  dim), `agent:` (from the adapter section above), `harness:` (only files that reach the agent),
+  `quality_tolerance: 0.5`.
+- `cases.json` — non-empty list of `{id, query, expected?}` (3-6 cases probing the goal).
+- `gates.py` — `GATES = {name: fn}` where `fn(result, case) -> {"passed": bool}`, reading
+  `result["output"]`. Programmatic + verifiable.
+- `judge.md` — 1-2 LLM-rubric dims (0-10) scoring the agent's OUTPUT.
+- `quality.md` — harness-quality rubric: clarity / no_overfit (auto-detected) / maintainability.
+- **the adapter's extra file** — the entry shim (`python-import`) or `adapter.py` (`custom`), if
+  the type needs one. (claude-p / command / local-service need none.)
 
 ## Workflow
 
-1. **Read the repo.** Skim for the agent's harness + entry:
-   - harness candidates: `CLAUDE.md`, `AGENTS.md`, `.claude/skills/**/*.md`, `.claude/agents/**/*.md`.
-   - entry signals: `pyproject.toml`/`setup.py` (python module + cli), `package.json` (node cli), a
-     `run`/`main` script, an existing `CLAUDE.md` (claude-p agent). Note the agent's framework if any.
-   - existing `.self-iterate/<goal>/`? If yes, ask whether to reuse or overwrite.
+1. **Read the user's repo** (NOT the plugin). Detect the agent's kind + harness + entry: harness
+   candidates (CLAUDE.md, AGENTS.md, .claude/skills, skills/, src/prompts), entry signals
+   (pyproject scripts, a CLI, an importable module, a local HTTP service / FastAPI route). List the
+   agents if several. Note an existing `.self-iterate/<goal>/` (ask reuse/overwrite).
 
-2. **Detect agent type + propose `agent:` config.** INVESTIGATE the repo to infer the entry, then
-   propose + CONFIRM. Pick one:
-   - `claude-p` (default) if the repo is a Claude-Code-native agent (has CLAUDE.md/skills).
-   - `command` if there's a CLI: read `pyproject.toml`/scripts to propose `cmd` with
-     `{variant_dir}`/`{query}` placeholders.
-   - `python-import` if there's an in-process entry: read the agent's construction code (how it's
-     built — `create_agent`, skills_dir, system prompt) and WRITE the `entry(query, variant_dir,
-     **extra)` shim yourself (and `run_case.py` if needed) so it rebuilds the agent with
-     `skills_dir=variant_dir`. Propose `module`/`entry` + `agent.venv` (detect the venv dir —
-     `.venv`/`venv`/uv — by checking for `bin/python`).
-   - `local-service` if the agent runs as a local HTTP service on `localhost:port`. INVESTIGATE the
-     code to propose the WHOLE config — do not ask the user to hand-provide it:
-     - `start`: read `pyproject.toml` `[project.scripts]` / a main module / docker-compose / README
-       → propose the launch command (it runs from the worktree, so the service loads the variant
-       harness).
-     - `port` + `ready`: read the service's default port + any `/health` route → propose (or `0` for
-       auto).
-     - `endpoint` + `request` + `response_path`: read the case route handler (e.g. the `/v1/chat`
-       handler) → propose the `request` body template with `{query}` and the `response_path` (dotted
-       JSON path) to the answer text.
-     - **harness-from-cwd check (critical):** read the agent-construction code — does it load
-       skills/prompts from a path RELATIVE to its launch dir (cwd) or an ABSOLUTE/fixed path? If
-       relative/cwd → local-service applies variants ✓. If absolute/fixed → variant harness won't
-       reach the service; propose either (a) a one-line fix to the service to read from cwd, or
-       (b) fall back to `python-import` (in-process shim).
-     Write the proposed `agent:` (type/start/port/ready/endpoint/request/response_path) and CONFIRM.
-   - **bespoke protocol (SSE / JWT / custom event format)** — if the agent's endpoint streams (SSE)
-     or needs auth/custom parsing that the declarative `local-service` config can't express (e.g.
-     maas `/v1/chat` is SSE-only with a custom event encoder + JWT): INVESTIGATE the agent's code
-     (the route handler, the SSE encoder, the auth module) and WRITE a `.self-iterate/<goal>/adapter.py`
-     defining `start(worktree)` (launch the real service FROM the worktree so it loads the variant
-     harness), `run_case(case, worktree)` (call the endpoint with the right auth + parse the bespoke
-     response into `{output, error}`), and `stop()` (kill the service). Set `agent.type: custom`.
-     The bespoke protocol lives in this per-agent script — not in the plugin. Then smoke-test it.
-   - `custom`/`run_case.py` escape hatch for bespoke agents.
-   If `agent.venv` is needed, detect it (don't ask) by checking for `bin/python` under `.venv`/
-   `venv`/`.python-version`/uv.
+2. **Pick the adapter** from the table above by the agent's kind. INVESTIGATE the user's code to
+   fill the `agent:` block (and write the shim/adapter.py if needed). CONFIRM the choice + config.
 
-3. **Ask the goal.** First INVESTIGATE which agents the repo contains (multiple entry points /
-   services?) and LIST them to the user; confirm WHICH is the optimization target — do NOT default
-   to one. Then ask, in one question, what the optimization target is for that agent (the goal is
-   user intent — not inferable; e.g. "make escalations decisive", "answer in one word"). This
-   becomes the `<goal>` dir name and the spec's intent. Propose a kebab-case dir name and CONFIRM.
+3. **Ask the goal.** Confirm WHICH agent (if several — don't default), then ask the optimization
+   target (user intent, not inferable). Propose a kebab-case `<goal>` dir name; CONFIRM.
 
-4. **Propose the eval spec drafts** (one block, then confirm piece-by-piece):
-   - `goal.yaml`: `threshold` (propose 0.85), `max_rounds` (propose 3), `regression: block`,
-     `weights` (gates heavy + 1 judge dim), the `agent:` block from step 2, `harness:` list = ONLY
-     files that actually reach the agent for the detected adapter (see Loop mechanics). For a
-     zai_adk / skills-based agent (python-import or local-service that loads skills_dir), that's
-     `skills/**/*.md` — NOT CLAUDE.md/AGENTS.md unless the agent reads them. `quality_tolerance: 0.5`.
-   - `cases.json`: 3-6 cases (id/query/expected-or-not) that probe the goal. Ask the user for real
-     representative inputs/outputs if they have them; otherwise propose from the goal.
-   - `gates.py`: programmatic, verifiable gates matching the goal (e.g. decisive_escalation,
-     is_substantive). `GATES = {name: fn}` where `fn(result, case) -> {"passed": bool}`. Gates must
-     read `result["output"]`.
-   - `judge.md`: 1-2 LLM-rubric dims (e.g. conciseness, escalation_quality) 0-10.
-   - `quality.md`: clarity / no_overfit (note: auto-detected) / maintainability rubric. (Optional but
-     recommended — recommend including it.)
-   CONFIRM each file's content with the user before writing. Adjust on feedback.
+4. **Propose the eval spec** using the templates above (goal.yaml/cases.json/gates.py/judge.md/
+   quality.md + the adapter file). CONFIRM each file before writing.
 
-5. **Write the spec** to `.self-iterate/<goal>/` (goal.yaml, cases.json, gates.py, judge.md,
-   quality.md, and the entry shim / run_case.py / adapter.py if the agent type needs one).
+5. **Write ALL required files** to `.self-iterate/<goal>/` (none missing — see the checklist).
 
-6. **Resolve the Python env.** Run:
+6. **Resolve the Python env:**
    ```
    python <plugin>/scripts/loop_iter/cli.py setup --eval .self-iterate/<goal>
    ```
-   This picks `agent.venv` if set (has the agent's deps) else bootstraps `.self-iterate/.venv`, and
-   records the interpreter at `.self-iterate/.python` (that venv has pyyaml+httpx, so validate-spec
-   can run). For python-import agents, confirm the shim imports the agent under that venv — ask the
-   user to run one case manually if unsure.
+   Picks `agent.venv` if set else bootstraps `.self-iterate/.venv`; records `.self-iterate/.python`.
 
-7. **Self-validate.** Run validate-spec under the recorded interpreter:
+7. **Self-validate** under the recorded interpreter:
    ```
    "$(cat .self-iterate/.python)" <plugin>/scripts/loop_iter/cli.py validate-spec --eval .self-iterate/<goal>
    ```
-   If `valid` is false, read the `problems`, FIX the offending file, re-run until valid. Surface
-   `warnings` to the user (e.g. quality.md absent, agent.type unset) and confirm whether to address.
-   (If validate-spec reports a pyyaml problem, the env didn't resolve — re-run `setup`.)
-   After validate-spec passes, run a smoke test:
+   Fix problems until `valid: true`. Then **smoke**:
    ```
    python <plugin>/scripts/loop_iter/cli.py smoke --eval .self-iterate/<goal>
    ```
-   It runs ONE case through the resolved adapter (for local-service: starts the service from the
-   repo, POSTs case[0], stops).
-   (smoke starts from the repo to verify the baseline entry; the loop's case-run starts the service
-   from the worktree each round to apply the variant harness.)
-   If it errors, fix the entry/config and re-run until non-error. Only
-   then is setup done — this catches a broken entry before `/self-iterate start` burns real calls.
+   Runs ONE case through the adapter (for local-service/custom: starts the service, calls case[0],
+   stops). Fix the entry/config until non-error. Only then is setup done.
 
-8. **Report.** Tell the user the spec is ready at `.self-iterate/<goal>/` and the next step is
-   `/self-iterate start <goal>`.
+8. **Report.** Spec ready at `.self-iterate/<goal>/`; next step `/self-iterate start <goal>`.
 
 ## Rules
-- INVESTIGATE-FIRST: read the code to infer + propose every config (entry, start/port/endpoint/
-  request/response, harness, venv, candidate gates). The user CONFIRMS or tweaks — don't ask them
-  to hand-provide what's in the code. Reserve open questions for the GOAL (user intent) and which
-  agent when several exist.
-- PROPOSE then CONFIRM. Never write the spec without the user confirming the goal + each file.
-- Gates must be programmatic and verifiable (a command exit code / boolean), not LLM vibes — the
-  loop's stop condition leans on them.
+- **Do NOT read the plugin's (loop-iteration) source.** This skill is the complete wiring contract.
+  Investigate the USER's agent code only.
+- **Produce ALL required files** — none may be missing (goal.yaml, cases.json, gates.py, judge.md,
+  quality.md, + the adapter's entry file).
+- INVESTIGATE-FIRST: infer + propose every config from the user's code; the user confirms/tweaks.
+- PROPOSE then CONFIRM. Never write without the user confirming the goal + each file.
+- Gates must be programmatic + verifiable (a boolean), not LLM vibes.
 - Don't hardcode eval answers into the proposed harness/gates.
-- If the repo genuinely has no inferable entry (no scripts/routes/main), THEN ask the user how the
-  agent is invoked.
+- `harness:` = ONLY files that actually reach the agent for the chosen adapter (see each section).
