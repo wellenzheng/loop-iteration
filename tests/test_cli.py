@@ -860,3 +860,45 @@ def test_cli_case_run_keeps_llm_quality_when_no_quality_target(tmp_path, monkeyp
     dims = load_scores(rp)["rounds"][-1]["quality_dims"]
     assert {"dim": "clarity", "score": 7.0} in dims
     assert any(d["dim"] == "no_overfit" for d in dims)
+
+
+def test_cli_quality_merge_round_not_found_errors(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, append_round
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    (ev / "quality.md").write_text("clarity")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    (rp.run_dir / "quality.json").write_text('{"round": 1, "quality": 10.0, "quality_dims": [{"dim":"no_overfit","score":10.0}]}')
+    append_round(rp, {"round": 1, "composite": 0.9, "quality": 10.0, "gate_pass_rates": {}, "cases": [], "judge_means": {}})
+    jp = rp.run_dir / "qj.json"; jp.write_text('{"dims": [{"dim":"clarity","score":8.0}], "maker_feedback": ""}')
+    try:
+        main(["quality-merge", "--eval", str(ev), "--run-id", "r1", "--base", str(repo), "--round", "99", "--from", str(jp)])
+        assert False, "should error on missing round"
+    except SystemExit as e:
+        assert "round 99" in str(e)
+
+
+def test_cli_quality_merge_malformed_json_errors(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, append_round
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    (ev / "quality.md").write_text("clarity")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    (rp.run_dir / "quality.json").write_text('{"round": 1, "quality": 10.0, "quality_dims": [{"dim":"no_overfit","score":10.0}]}')
+    append_round(rp, {"round": 1, "composite": 0.9, "quality": 10.0, "gate_pass_rates": {}, "cases": [], "judge_means": {}})
+    jp = rp.run_dir / "qj.json"; jp.write_text("not json at all")
+    try:
+        main(["quality-merge", "--eval", str(ev), "--run-id", "r1", "--base", str(repo), "--round", "1", "--from", str(jp)])
+        assert False, "should error on malformed JSON"
+    except SystemExit as e:
+        assert "invalid quality-judge JSON" in str(e)

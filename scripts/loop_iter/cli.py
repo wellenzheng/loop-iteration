@@ -282,7 +282,12 @@ def _quality_merge(args):
     from loop_iter.state import RunPaths, load_state, write_state, load_scores, write_scores
     from loop_iter.judge import quality_mean
     rp = RunPaths(base=args.base, run_id=args.run_id)
-    judge = json.loads(Path(getattr(args, "from")).read_text())
+    try:
+        judge = json.loads(Path(getattr(args, "from")).read_text())
+        if not isinstance(judge, dict) or not isinstance(judge.get("dims", []), list):
+            raise ValueError("expected {dims: [...], maker_feedback: ...}")
+    except Exception as e:
+        raise SystemExit(f"quality-merge: invalid quality-judge JSON at {getattr(args, 'from')}: {e}")
     llm_dims = [d for d in (judge.get("dims") or []) if d.get("dim") != "no_overfit"]
     feedback = judge.get("maker_feedback")
 
@@ -305,10 +310,14 @@ def _quality_merge(args):
         q["maker_feedback"] = feedback
         qpath.write_text(json.dumps(q, indent=2, ensure_ascii=False))
         data = load_scores(rp)
+        matched = False
         for r in data["rounds"]:
             if r["round"] == args.round:
                 r["quality"] = q["quality"]; r["quality_dims"] = q["quality_dims"]
                 r["maker_feedback"] = feedback
+                matched = True
+        if not matched:
+            raise SystemExit(f"quality-merge: round {args.round} not found in scores.json")
         write_scores(rp, data)
         print(json.dumps({"round": args.round, "quality": q["quality"]}))
 

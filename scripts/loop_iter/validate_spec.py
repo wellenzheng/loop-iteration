@@ -78,8 +78,10 @@ def validate_spec(eval_dir: str) -> dict:
     if qt is not None:
         if not isinstance(qt, (int, float)) or isinstance(qt, bool):
             problems.append("goal.yaml: quality_target must be a number (0-10)")
+        elif not (0 <= qt <= 10):
+            problems.append("goal.yaml: quality_target must be in 0-10")
         if not (d / "quality.md").exists():
-            warnings.append("goal.yaml: quality_target set but no quality.md — quality-judge has no rubric")
+            problems.append("goal.yaml: quality_target set but no quality.md — quality-judge needs a rubric")
 
     # cases.json
     cases_path = d / "cases.json"
