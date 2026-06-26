@@ -726,3 +726,83 @@ def test_cli_smoke_handles_service_adapter(tmp_path, monkeypatch):
     out = json.loads(buf.getvalue())
     assert out["output"] == "svc-answer"
     assert svc.started == 1 and svc.stopped == 1
+
+
+def test_cli_quality_merge_round(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, append_round
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\nquality_target: 8.0\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    (ev / "quality.md").write_text("clarity / maintainability")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    (rp.run_dir / "quality.json").write_text('{"round": 1, "quality": 10.0, "quality_dims": [{"dim": "no_overfit", "score": 10.0}]}')
+    append_round(rp, {"round": 1, "composite": 0.9, "quality": 10.0, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    judge_path = rp.run_dir / "quality_judge.json"
+    judge_path.write_text('{"dims": [{"dim": "clarity", "score": 6.0}, {"dim": "maintainability", "score": 6.0}], "maker_feedback": "trim section 3"}')
+    import io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["quality-merge", "--eval", str(ev), "--run-id", "r1", "--base", str(repo),
+              "--round", "1", "--from", str(judge_path)])
+    import json
+    from loop_iter.state import load_scores
+    q = json.loads((rp.run_dir / "quality.json").read_text())
+    assert abs(q["quality"] - (10 + 6 + 6) / 3) < 1e-6
+    assert q["maker_feedback"] == "trim section 3"
+    assert any(d["dim"] == "no_overfit" and d["score"] == 10.0 for d in q["quality_dims"])
+    assert load_scores(rp)["rounds"][-1]["quality"] == q["quality"]
+
+
+def test_cli_quality_merge_baseline(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state, write_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\nquality_target: 8.0\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    (ev / "quality.md").write_text("clarity")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    rp.baseline_file.write_text('{"composite": 0.5, "quality": 10.0, "quality_dims": [{"dim":"no_overfit","score":10.0}]}')
+    st = load_state(rp); st["baseline_quality"] = 10.0; write_state(rp, st)
+    judge_path = rp.run_dir / "quality_judge_baseline.json"
+    judge_path.write_text('{"dims": [{"dim": "clarity", "score": 9.0}], "maker_feedback": ""}')
+    import io, contextlib, json
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["quality-merge", "--eval", str(ev), "--run-id", "r1", "--base", str(repo),
+              "--baseline", "--from", str(judge_path)])
+    b = json.loads(rp.baseline_file.read_text())
+    assert abs(b["quality"] - (10 + 9) / 2) < 1e-6
+    assert load_state(rp)["baseline_quality"] == b["quality"]
+
+
+def test_cli_quality_merge_overrides_subagent_no_overfit(tmp_path):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, append_round
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "judge.md").write_text("x")
+    (ev / "quality.md").write_text("clarity")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    (rp.run_dir / "quality.json").write_text('{"round": 1, "quality": 10.0, "quality_dims": [{"dim": "no_overfit", "score": 10.0}]}')
+    append_round(rp, {"round": 1, "composite": 0.9, "quality": 10.0, "gate_pass_rates": {}, "cases": [], "judge_means": {}})
+    judge_path = rp.run_dir / "quality_judge.json"
+    judge_path.write_text('{"dims": [{"dim": "no_overfit", "score": 2.0}, {"dim": "clarity", "score": 8.0}], "maker_feedback": ""}')
+    import io, contextlib, json
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["quality-merge", "--eval", str(ev), "--run-id", "r1", "--base", str(repo),
+              "--round", "1", "--from", str(judge_path)])
+    q = json.loads((rp.run_dir / "quality.json").read_text())
+    no_overfit = [d for d in q["quality_dims"] if d["dim"] == "no_overfit"][0]
+    assert no_overfit["score"] == 10.0
+    assert len(q["quality_dims"]) == 2

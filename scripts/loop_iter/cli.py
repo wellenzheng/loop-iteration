@@ -269,6 +269,42 @@ def _smoke(args):
         raise SystemExit(1)
 
 
+def _quality_merge(args):
+    import json
+    from loop_iter.state import RunPaths, load_state, write_state, load_scores, write_scores
+    from loop_iter.judge import quality_mean
+    rp = RunPaths(base=args.base, run_id=args.run_id)
+    judge = json.loads(Path(getattr(args, "from")).read_text())
+    llm_dims = [d for d in (judge.get("dims") or []) if d.get("dim") != "no_overfit"]
+    feedback = judge.get("maker_feedback")
+
+    def merge(existing: dict):
+        no_overfit = [d for d in existing.get("quality_dims", []) if d.get("dim") == "no_overfit"]
+        all_dims = no_overfit + llm_dims
+        return quality_mean(all_dims), all_dims
+
+    if args.baseline:
+        b = json.loads(rp.baseline_file.read_text())
+        b["quality"], b["quality_dims"] = merge(b)
+        b["maker_feedback"] = feedback
+        rp.baseline_file.write_text(json.dumps(b, indent=2, ensure_ascii=False))
+        st = load_state(rp); st["baseline_quality"] = b["quality"]; write_state(rp, st)
+        print(json.dumps({"baseline_quality": b["quality"]}))
+    else:
+        qpath = rp.run_dir / "quality.json"
+        q = json.loads(qpath.read_text())
+        q["quality"], q["quality_dims"] = merge(q)
+        q["maker_feedback"] = feedback
+        qpath.write_text(json.dumps(q, indent=2, ensure_ascii=False))
+        data = load_scores(rp)
+        for r in data["rounds"]:
+            if r["round"] == args.round:
+                r["quality"] = q["quality"]; r["quality_dims"] = q["quality_dims"]
+                r["maker_feedback"] = feedback
+        write_scores(rp, data)
+        print(json.dumps({"round": args.round, "quality": q["quality"]}))
+
+
 def _load_dotenv(path: str = ".env") -> None:
     """Load KEY=VALUE from .env into os.environ via setdefault (explicit env wins).
     Shell-safe python parse (zsh `source` chokes on some .env lines). No-op if absent."""
@@ -349,6 +385,16 @@ def main(argv=None):
     s.add_argument("--eval", required=True)
     s.add_argument("--base", default=".")
     s.set_defaults(func=_smoke)
+
+    s = sub.add_parser("quality-merge")
+    s.add_argument("--eval", required=True)
+    s.add_argument("--run-id", required=True)
+    s.add_argument("--base", default=".")
+    s.add_argument("--from", required=True, help="path to quality-judge JSON {dims, maker_feedback}")
+    g = s.add_mutually_exclusive_group(required=True)
+    g.add_argument("--baseline", action="store_true")
+    g.add_argument("--round", type=int)
+    s.set_defaults(func=_quality_merge)
 
     a = ap.parse_args(argv)
     a.func(a)
