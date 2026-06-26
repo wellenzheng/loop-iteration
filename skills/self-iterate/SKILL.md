@@ -31,7 +31,7 @@ Use `"$PY"` for every cli call below. `<plugin>` = this plugin's root.
 2. **Baseline** (once): `"$PY" <plugin>/scripts/loop_iter/cli.py baseline --eval .self-iterate/<goal> --run-id <run_id>`. Scores the unmodified harness, writes `baseline.json`, advances to `phase=maker`, `round=1`.
    *(If goal.yaml sets `quality_target`, quality becomes an auxiliary optimization target: the
    maker also drives harness 规范度 toward the target. In the baseline phase AND each eval phase,
-   dispatch the `quality-judge` agent IN PARALLEL with case-evaluation — case-evaluator runs cases
+   dispatch the `quality-judge` agent IN PARALLEL with case-evaluation — the case-run step runs cases
    (output), quality-judge reads the variant harness (clarity/maintainability + maker_feedback);
    they're independent. case-run/baseline compute only the programmatic `no_overfit` when
    `quality_target` is set; the sub-agent provides the LLM dims. After both return: write the
