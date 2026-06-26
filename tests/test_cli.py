@@ -559,7 +559,7 @@ def test_cli_baseline_skips_quality_when_no_quality_md(tmp_path, monkeypatch):
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
-    assert load_state(rp)["baseline_quality"] is None
+    assert load_state(rp)["baseline_quality"] == 10.0   # no_overfit always computed (decoupled from quality.md)
 
 
 def test_cli_case_run_writes_quality_when_quality_md_present(tmp_path, monkeypatch):

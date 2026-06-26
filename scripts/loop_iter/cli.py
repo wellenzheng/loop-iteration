@@ -152,26 +152,24 @@ def _init(args):
 
 
 def _compute_quality(ev, repo_root: str, read_root: str, cases: list, llm_call, skip_llm: bool = False):
-    """Harness quality (opt-in via quality.md): programmatic no_overfit (reliable) + LLM dims per
-    the rubric (degradable). The programmatic no_overfit overrides any LLM no_overfit dim. Returns
-    (quality_mean_or_None, dims_list). No quality.md -> (None, []). When the LLM degrades, no_overfit
-    alone still yields a non-None quality so the guardrail can fire on hardcoded-answer regressions.
-
-    skip_llm -> only no_overfit, no judge_quality call — the quality-judge sub-agent provides LLM
-    dims via quality-merge."""
+    """Harness quality: no_overfit (programmatic, ALWAYS computed — the reliable floor). LLM dims
+    (clarity/etc.) via in-process judge_quality only when quality.md present AND not skip_llm; when
+    quality_target is set (skip_llm), the quality-judge sub-agent provides LLM dims via quality-merge.
+    no_overfit is decoupled from quality.md so it's never lost."""
     from loop_iter.judge import judge_quality, quality_mean
     from loop_iter.adapter_generic import harness_text
     from loop_iter.quality_prog import no_overfit_score
-    quality_md_path = ev / "quality.md"
-    if not quality_md_path.exists():
-        return None, []
     htext = harness_text(str(ev), repo_root, read_root)
     prog = [{"dim": "no_overfit", "score": no_overfit_score(htext, cases)}]
     if skip_llm:
         llm_dims = []
     else:
-        llm_dims = [d for d in (judge_quality(htext, quality_md_path.read_text(), llm_call) or [])
-                    if d.get("dim") != "no_overfit"]
+        quality_md_path = ev / "quality.md"
+        if quality_md_path.exists():
+            llm_dims = [d for d in (judge_quality(htext, quality_md_path.read_text(), llm_call) or [])
+                        if d.get("dim") != "no_overfit"]
+        else:
+            llm_dims = []
     all_dims = prog + llm_dims
     return quality_mean(all_dims), all_dims
 

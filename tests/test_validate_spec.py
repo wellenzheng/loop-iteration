@@ -242,15 +242,15 @@ def test_quality_target_must_be_number(tmp_path):
     assert any("quality_target" in p for p in v["problems"])
 
 
-def test_quality_target_requires_quality_md(tmp_path):
+def test_quality_target_valid_without_quality_md(tmp_path):
+    """quality_target is valid without quality.md — the quality-judge has a built-in industry rubric."""
     d = tmp_path / "g"; d.mkdir()
     _write_valid_spec(d)
     (d / "quality.md").unlink()
     goal = (d / "goal.yaml").read_text() + "quality_target: 8.0\n"
     (d / "goal.yaml").write_text(goal)
     v = validate_spec(str(d))
-    assert v["valid"] is False
-    assert any("quality_target" in p and "quality.md" in p for p in v["problems"])
+    assert v["valid"] is True
 
 
 def test_quality_target_range_0_10(tmp_path):
