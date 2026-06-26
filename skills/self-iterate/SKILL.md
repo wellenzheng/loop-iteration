@@ -1,6 +1,6 @@
 ---
 name: self-iterate
-description: Drives the built-in state-machine self-iteration loop for the agent in the current repo (baseline → maker/checker rounds → goal-check → report), advancing an on-disk state machine at .self-iterate/runs/<run_id>/state.json. The cli enforces phase ordering and the max_rounds cap; no external ralph/autopilot needed. Use when the user runs "/self-iterate toward <goal>" or "/self-iterate start <goal>".
+description: Drives the built-in state-machine self-iteration loop for the agent in the current repo (baseline → maker/checker rounds → goal-check → report), advancing an on-disk state machine at .self-iterate/runs/<run_id>/state.json. The cli enforces phase ordering and the max_rounds cap; no external ralph/autopilot needed. Use when the user runs "/self-iterate" (shows usage), "/self-iterate toward <goal>", or "/self-iterate start <goal>".
 ---
 
 # self-iterate (state-machine loop)
@@ -8,6 +8,13 @@ description: Drives the built-in state-machine self-iteration loop for the agent
 You drive the built-in self-iteration loop in the user's current repo (cwd), advancing an on-disk
 state machine at `.self-iterate/runs/<run_id>/state.json`. The cli enforces phase ordering — you
 cannot skip steps. You loop until `phase == done`.
+
+## Usage
+- `/self-iterate` (no args) → show this usage + the available subcommands.
+- `/self-iterate start <goal>` or `/self-iterate toward <goal>` → run the loop to completion.
+- `/self-iterate setup` → dispatch the `self-iterate-setup` skill (interactive eval-spec scaffolding).
+
+If invoked with no `<goal>`, ask the user which goal under `.self-iterate/` to run (list them).
 
 ## Inputs
 - `goal` — eval name under `.self-iterate/` in cwd.
