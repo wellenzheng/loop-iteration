@@ -923,3 +923,90 @@ def test_cli_dashboard_starts_and_serves(tmp_path, monkeypatch):
         main(["dashboard", "--eval", str(ev), "--run-id", "d1", "--base", str(repo)])
     out = json.loads(buf.getvalue())
     assert "url" in out and "port" in out
+
+
+def test_cli_import_cases_from_csv(tmp_path):
+    from loop_iter.cli import main
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    csv_file = tmp_path / "data.csv"
+    csv_file.write_text("question,answer\nWhat is 2+2?,Four\nCapital of France?,Paris\n")
+    import io, contextlib, json
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["import-cases", "--from", str(csv_file), "--eval", str(ev),
+              "--query-col", "question", "--expected-col", "answer", "--base", str(repo)])
+    out = json.loads(buf.getvalue())
+    assert out["count"] == 2
+    cases = json.loads((ev / "cases.json").read_text())
+    assert cases[0]["query"] == "What is 2+2?"
+    assert cases[0]["expected"] == "Four"
+    assert cases[1]["query"] == "Capital of France?"
+    assert "id" in cases[0]  # auto-generated
+
+
+def test_cli_import_cases_from_json(tmp_path):
+    from loop_iter.cli import main
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    json_file = tmp_path / "data.json"
+    json_file.write_text('[{"q":"hello","a":"hi"},{"q":"bye","a":"bye"}]')
+    import io, contextlib, json
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["import-cases", "--from", str(json_file), "--eval", str(ev),
+              "--query-col", "q", "--expected-col", "a", "--base", str(repo)])
+    cases = json.loads((ev / "cases.json").read_text())
+    assert len(cases) == 2
+    assert cases[0]["query"] == "hello"
+    assert cases[0]["expected"] == "hi"
+
+
+def test_cli_import_cases_auto_id(tmp_path):
+    from loop_iter.cli import main
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    csv_file = tmp_path / "data.csv"
+    csv_file.write_text("input\nhello\nworld\n")
+    import io, contextlib, json
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["import-cases", "--from", str(csv_file), "--eval", str(ev),
+              "--query-col", "input", "--base", str(repo)])
+    cases = json.loads((ev / "cases.json").read_text())
+    assert cases[0]["id"] == "c1"
+    assert cases[1]["id"] == "c2"
+    assert "expected" not in cases[0]  # no expected-col -> omitted
+
+
+def test_cli_import_cases_custom_id_col(tmp_path):
+    from loop_iter.cli import main
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    csv_file = tmp_path / "data.csv"
+    csv_file.write_text("case_id,question\n001,hello\n002,world\n")
+    import io, contextlib, json
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["import-cases", "--from", str(csv_file), "--eval", str(ev),
+              "--query-col", "question", "--id-col", "case_id", "--base", str(repo)])
+    cases = json.loads((ev / "cases.json").read_text())
+    assert cases[0]["id"] == "001"
+
+
+def test_cli_import_cases_unsupported_type_errors(tmp_path):
+    from loop_iter.cli import main
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    bad_file = tmp_path / "data.txt"; bad_file.write_text("hello")
+    try:
+        main(["import-cases", "--from", str(bad_file), "--eval", str(ev),
+              "--query-col", "q", "--base", str(repo)])
+        assert False, "should error"
+    except SystemExit as e:
+        assert "Unsupported" in str(e) or ".txt" in str(e)
