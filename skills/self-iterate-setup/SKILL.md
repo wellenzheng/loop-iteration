@@ -111,7 +111,7 @@ def stop():
 Write every one of these to `.self-iterate/<goal>/` (none may be missing):
 - `goal.yaml` — `threshold`, `max_rounds`, `regression: block`, `weights` (gates heavy + ≥1 judge
   dim), `agent:` (from the adapter section), `harness:` (only files that reach the agent),
-  `quality_tolerance: 0.5`.
+  `quality_tolerance: 0.5`, `quality_target` (optional float — enables the quality-judge auxiliary target).
 - `cases.json` — non-empty list of `{id, query, expected?}` (3-6 cases probing the goal).
 - `gates.py` — `GATES = {name: fn}` where `fn(result, case) -> {"passed": bool}`, reading
   `result["output"]`. Programmatic + verifiable.
@@ -135,6 +135,9 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
 4. **Ask the eval criteria (rubric).** Propose + CONFIRM the gates (programmatic, verifiable,
    reading `result["output"]`) and the judge dims (LLM 0-10 on the output). These become `gates.py`
    + `judge.md`.
+   - Ask whether to set `quality_target` (opt-in auxiliary target on harness 规范度 — when set, the
+     loop also drives harness cleanup via a quality-judge sub-agent; `met` then requires
+     `quality ≥ quality_target`). If yes, add `quality_target: <float>` (recommend 8.0) to goal.yaml.
 5. **Ask the eval entry.** Propose + CONFIRM how cases invoke the agent — the adapter entry (start
    cmd / endpoint+request / shim / adapter.py). Fill it by reading the user's code (see Adapter
    wiring). This is what step 7 writes.

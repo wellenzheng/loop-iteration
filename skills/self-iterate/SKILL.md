@@ -22,6 +22,20 @@ Use `"$PY"` for every cli call below. `<plugin>` = this plugin's root.
 ## Loop
 1. **Init** (once): `"$PY" <plugin>/scripts/loop_iter/cli.py init --goal <goal> --eval .self-iterate/<goal> --run-id <run_id>`. Creates `state.json` at `phase=baseline`.
 2. **Baseline** (once): `"$PY" <plugin>/scripts/loop_iter/cli.py baseline --eval .self-iterate/<goal> --run-id <run_id>`. Scores the unmodified harness, writes `baseline.json`, advances to `phase=maker`, `round=1`.
+   *(If goal.yaml sets `quality_target`, quality becomes an auxiliary optimization target: the
+   maker also drives harness 规范度 toward the target. In the baseline phase AND each eval phase,
+   dispatch the `quality-judge` agent IN PARALLEL with case-evaluation — case-evaluator runs cases
+   (output), quality-judge reads the variant harness (clarity/maintainability + maker_feedback);
+   they're independent. case-run/baseline compute only the programmatic `no_overfit` when
+   `quality_target` is set; the sub-agent provides the LLM dims. After both return: write the
+   quality-judge's JSON to `.self-iterate/runs/<run_id>/quality_judge.json` (or
+   `quality_judge_baseline.json` for baseline), then run:
+   `quality-merge --eval ... --run-id ... --baseline --from quality_judge_baseline.json` (baseline)
+   or `--round <N> --from quality_judge.json` (eval) — it merges the sub-agent's LLM dims with the
+   programmatic no_overfit into quality.json/baseline.json + the round's quality. Then goal-check
+   (met now requires quality ≥ quality_target). For the maker next round, pass the failing gates +
+   weak output-judge dims + the quality-judge's `maker_feedback` + weak quality dims — two-phase:
+   gates first, then harness 规范度. No `quality_target` → current behavior, no quality-judge.)*
    *(If `.self-iterate/<goal>/quality.md` exists, the baseline and each `case-run` also score the
    harness files themselves on a quality rubric → `baseline_quality` / per-round `quality.json`. A
    round whose quality regresses below `baseline_quality − quality_tolerance` (default 0.5) cannot
@@ -30,7 +44,7 @@ Use `"$PY"` for every cli call below. `<plugin>` = this plugin's root.
    reliable even when the LLM quality-judge degrades.
    No `quality.md` → guardrail inactive.)*
 3. **Per round, while `phase != done`:**
-   a. **Stage + maker.** `apply-variant` for a worktree, then dispatch the `harness-rewriter` agent on the worktree (round 1: "cold start — sharpen the baseline harness to satisfy the gates"; later rounds: pass the failing gates + weak dims from the previous `case-run`).
+   a. **Stage + maker.** `apply-variant` for a worktree, then dispatch the `harness-rewriter` agent on the worktree (round 1: "cold start — sharpen the baseline harness to satisfy the gates"; later rounds: pass the failing gates + weak dims from the previous `case-run`). When `quality_target` is set, also pass the previous round's `maker_feedback` + weak quality dims (read from `.self-iterate/runs/<run_id>/quality.json`).
    b. **Snapshot + advance.** `"$PY" <plugin>/scripts/loop_iter/cli.py snapshot --eval .self-iterate/<goal> --worktree <worktree> --dest .self-iterate/runs/<run_id>/variants/round_<N> --run-id <run_id>`. Snapshots the variant and advances `maker -> eval`.
    c. **Eval + advance.** `"$PY" <plugin>/scripts/loop_iter/cli.py case-run --eval .self-iterate/<goal> --worktree <worktree> --run-id <run_id> --round <N>`. Runs cases + judge, writes this round into `scores.json`, advances `eval -> goalcheck`.
    d. **Goal-check + advance.** `"$PY" <plugin>/scripts/loop_iter/cli.py goal-check --eval .self-iterate/<goal> --run-id <run_id>`. Computes the verdict and advances: `met` or `round >= max_rounds` -> `phase=done`; otherwise -> `phase=maker`, `round++`.

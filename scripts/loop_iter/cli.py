@@ -65,7 +65,8 @@ def _case_run(args):
                     run_case_fn=rc, llm_call=llm_call)
     out["round"] = args.round
     # harness-quality guardrail (opt-in via quality.md); score the VARIANT's harness in the worktree
-    out["quality"], out["quality_dims"] = _compute_quality(ev, args.base, args.worktree, cases, llm_call)
+    out["quality"], out["quality_dims"] = _compute_quality(
+        ev, args.base, args.worktree, cases, llm_call, skip_llm=bool(goal.get("quality_target")))
     if rp.state_file.exists():
         (rp.run_dir / "quality.json").write_text(
             json.dumps({"round": args.round, "quality": out["quality"],
@@ -150,11 +151,14 @@ def _init(args):
     print(json.dumps({"run_id": args.run_id, "phase": st["phase"], "max_rounds": st["max_rounds"]}))
 
 
-def _compute_quality(ev, repo_root: str, read_root: str, cases: list, llm_call):
+def _compute_quality(ev, repo_root: str, read_root: str, cases: list, llm_call, skip_llm: bool = False):
     """Harness quality (opt-in via quality.md): programmatic no_overfit (reliable) + LLM dims per
     the rubric (degradable). The programmatic no_overfit overrides any LLM no_overfit dim. Returns
     (quality_mean_or_None, dims_list). No quality.md -> (None, []). When the LLM degrades, no_overfit
-    alone still yields a non-None quality so the guardrail can fire on hardcoded-answer regressions."""
+    alone still yields a non-None quality so the guardrail can fire on hardcoded-answer regressions.
+
+    skip_llm -> only no_overfit, no judge_quality call — the quality-judge sub-agent provides LLM
+    dims via quality-merge."""
     from loop_iter.judge import judge_quality, quality_mean
     from loop_iter.adapter_generic import harness_text
     from loop_iter.quality_prog import no_overfit_score
@@ -163,8 +167,11 @@ def _compute_quality(ev, repo_root: str, read_root: str, cases: list, llm_call):
         return None, []
     htext = harness_text(str(ev), repo_root, read_root)
     prog = [{"dim": "no_overfit", "score": no_overfit_score(htext, cases)}]
-    llm_dims = [d for d in (judge_quality(htext, quality_md_path.read_text(), llm_call) or [])
-                if d.get("dim") != "no_overfit"]
+    if skip_llm:
+        llm_dims = []
+    else:
+        llm_dims = [d for d in (judge_quality(htext, quality_md_path.read_text(), llm_call) or [])
+                    if d.get("dim") != "no_overfit"]
     all_dims = prog + llm_dims
     return quality_mean(all_dims), all_dims
 
@@ -188,7 +195,8 @@ def _baseline(args):
     out = run_cases(cases, args.base, str(ev / "gates.py"),
                     (ev / "judge.md").read_text(), goal["weights"],
                     run_case_fn=rc, llm_call=llm_call)
-    out["quality"], out["quality_dims"] = _compute_quality(ev, args.base, args.base, cases, llm_call)
+    out["quality"], out["quality_dims"] = _compute_quality(
+        ev, args.base, args.base, cases, llm_call, skip_llm=bool(goal.get("quality_target")))
     rp.baseline_file.write_text(json.dumps(out, indent=2, ensure_ascii=False))
     advance_phase(rp, "baseline", "maker",
                   updates={"round": 1, "baseline_composite": out["composite"],
@@ -267,6 +275,51 @@ def _smoke(args):
                       "error": result.get("error")}, ensure_ascii=False, indent=2))
     if result.get("error"):
         raise SystemExit(1)
+
+
+def _quality_merge(args):
+    import json
+    from loop_iter.state import RunPaths, load_state, write_state, load_scores, write_scores
+    from loop_iter.judge import quality_mean
+    rp = RunPaths(base=args.base, run_id=args.run_id)
+    try:
+        judge = json.loads(Path(getattr(args, "from")).read_text())
+        if not isinstance(judge, dict) or not isinstance(judge.get("dims", []), list):
+            raise ValueError("expected {dims: [...], maker_feedback: ...}")
+    except Exception as e:
+        raise SystemExit(f"quality-merge: invalid quality-judge JSON at {getattr(args, 'from')}: {e}")
+    llm_dims = [d for d in (judge.get("dims") or []) if d.get("dim") != "no_overfit"]
+    feedback = judge.get("maker_feedback")
+
+    def merge(existing: dict):
+        no_overfit = [d for d in existing.get("quality_dims", []) if d.get("dim") == "no_overfit"]
+        all_dims = no_overfit + llm_dims
+        return quality_mean(all_dims), all_dims
+
+    if args.baseline:
+        b = json.loads(rp.baseline_file.read_text())
+        b["quality"], b["quality_dims"] = merge(b)
+        b["maker_feedback"] = feedback
+        rp.baseline_file.write_text(json.dumps(b, indent=2, ensure_ascii=False))
+        st = load_state(rp); st["baseline_quality"] = b["quality"]; write_state(rp, st)
+        print(json.dumps({"baseline_quality": b["quality"]}))
+    else:
+        qpath = rp.run_dir / "quality.json"
+        q = json.loads(qpath.read_text())
+        q["quality"], q["quality_dims"] = merge(q)
+        q["maker_feedback"] = feedback
+        qpath.write_text(json.dumps(q, indent=2, ensure_ascii=False))
+        data = load_scores(rp)
+        matched = False
+        for r in data["rounds"]:
+            if r["round"] == args.round:
+                r["quality"] = q["quality"]; r["quality_dims"] = q["quality_dims"]
+                r["maker_feedback"] = feedback
+                matched = True
+        if not matched:
+            raise SystemExit(f"quality-merge: round {args.round} not found in scores.json")
+        write_scores(rp, data)
+        print(json.dumps({"round": args.round, "quality": q["quality"]}))
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -349,6 +402,16 @@ def main(argv=None):
     s.add_argument("--eval", required=True)
     s.add_argument("--base", default=".")
     s.set_defaults(func=_smoke)
+
+    s = sub.add_parser("quality-merge")
+    s.add_argument("--eval", required=True)
+    s.add_argument("--run-id", required=True)
+    s.add_argument("--base", default=".")
+    s.add_argument("--from", required=True, help="path to quality-judge JSON {dims, maker_feedback}")
+    g = s.add_mutually_exclusive_group(required=True)
+    g.add_argument("--baseline", action="store_true")
+    g.add_argument("--round", type=int)
+    s.set_defaults(func=_quality_merge)
 
     a = ap.parse_args(argv)
     a.func(a)
