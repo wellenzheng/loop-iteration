@@ -143,8 +143,15 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
 5. **Ask the eval entry.** Propose + CONFIRM how cases invoke the agent — the adapter entry (start
    cmd / endpoint+request / shim / adapter.py). Fill it by reading the user's code (see Adapter
    wiring). This is what step 7 writes.
-6. **Ask the eval set (cases).** Propose + CONFIRM the eval cases (3-6 probing the goal; ask the
-   user for real representative inputs/outputs). These become `cases.json`.
+6. **Ask the eval set (cases).** Ask the user where their eval data is (file path — may be
+   `.csv` / `.json` / `.xlsx` / `.xls` with any column names). Ask which columns/fields map to
+   `query` (required), `id` (optional, auto c1/c2/…), and `expected` (optional). Then adapt it to
+   the standard format:
+   ```
+   python <plugin>/scripts/loop_iter/cli.py import-cases --from <user_file> --eval .self-iterate/<goal> --query-col <col> [--id-col <col>] [--expected-col <col>]
+   ```
+   This writes `cases.json` in the standard `[{id, query, expected?}]` format. If the user has no
+   file, propose 3-6 cases from the goal. CONFIRM the generated cases.json with the user.
 
 ### Phase 2 · Prepare (produce all files)
 

@@ -331,6 +331,55 @@ def _dashboard(args):
     serve(eval_dir=args.eval, run_id=args.run_id, base=args.base, port=args.port)
 
 
+def _import_cases(args):
+    """Import eval cases from csv/json/xlsx into cases.json (standard format)."""
+    import csv
+    src = Path(args.from_file)
+    id_col = args.id_col
+    query_col = args.query_col
+    expected_col = args.expected_col
+
+    rows = []
+    if src.suffix == ".json":
+        data = json.loads(src.read_text())
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict) and "cases" in data:
+            rows = data["cases"]
+        else:
+            raise SystemExit("JSON must be a list of objects or {cases: [...]}")
+    elif src.suffix == ".csv":
+        with open(src, newline="") as f:
+            rows = list(csv.DictReader(f))
+    elif src.suffix in (".xlsx", ".xls"):
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            raise SystemExit("xlsx requires openpyxl: pip install openpyxl")
+        wb = load_workbook(src, read_only=True)
+        ws = wb.active
+        header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+        headers = [str(h) if h is not None else f"col{i}" for i, h in enumerate(header_row)]
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            rows.append(dict(zip(headers, row)))
+        wb.close()
+    else:
+        raise SystemExit(f"Unsupported file type: {src.suffix} (use .json / .csv / .xlsx)")
+
+    cases = []
+    for i, row in enumerate(rows):
+        case = {}
+        case["id"] = str(row[id_col]) if id_col and row.get(id_col) is not None else f"c{i+1}"
+        case["query"] = str(row.get(query_col, "")) if query_col else ""
+        if expected_col and row.get(expected_col) is not None:
+            case["expected"] = str(row[expected_col])
+        cases.append(case)
+
+    ev = Path(args.eval)
+    (ev / "cases.json").write_text(json.dumps(cases, indent=2, ensure_ascii=False))
+    print(json.dumps({"count": len(cases), "sample": cases[:3]}))
+
+
 def _load_dotenv(path: str = ".env") -> None:
     """Load KEY=VALUE from .env into os.environ via setdefault (explicit env wins).
     Shell-safe python parse (zsh `source` chokes on some .env lines). No-op if absent."""
@@ -428,6 +477,15 @@ def main(argv=None):
     s.add_argument("--base", default=".")
     s.add_argument("--port", type=int, default=0)
     s.set_defaults(func=_dashboard)
+
+    s = sub.add_parser("import-cases")
+    s.add_argument("--from", dest="from_file", required=True, help="source file (csv/json/xlsx)")
+    s.add_argument("--eval", required=True)
+    s.add_argument("--query-col", required=True, help="column/field name for the query")
+    s.add_argument("--id-col", default=None, help="column/field for case id (auto c1,c2,... if omitted)")
+    s.add_argument("--expected-col", default=None, help="column/field for expected answer (omitted if not set)")
+    s.add_argument("--base", default=".")
+    s.set_defaults(func=_import_cases)
 
     a = ap.parse_args(argv)
     a.func(a)
