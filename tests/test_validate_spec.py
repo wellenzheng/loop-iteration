@@ -230,3 +230,23 @@ def test_adapter_py_info_warning_when_present(tmp_path):
         "def stop(): pass\n")
     v = validate_spec(str(d))
     assert any("adapter.py" in w for w in v["warnings"])
+
+
+def test_quality_target_must_be_number(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d)
+    goal = (d / "goal.yaml").read_text() + "quality_target: high\n"
+    (d / "goal.yaml").write_text(goal)
+    v = validate_spec(str(d))
+    assert v["valid"] is False
+    assert any("quality_target" in p for p in v["problems"])
+
+
+def test_quality_target_warns_without_quality_md(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d)
+    (d / "quality.md").unlink()   # _write_valid_spec writes one; remove it
+    goal = (d / "goal.yaml").read_text() + "quality_target: 8.0\n"
+    (d / "goal.yaml").write_text(goal)
+    v = validate_spec(str(d))
+    assert any("quality_target" in w and "quality.md" in w for w in v["warnings"])

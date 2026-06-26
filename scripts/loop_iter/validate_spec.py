@@ -74,6 +74,12 @@ def validate_spec(eval_dir: str) -> dict:
             problems.append("goal.yaml: agent.type=local-service requires agent.request")
         if not agent.get("ready"):
             warnings.append("goal.yaml: local-service has no agent.ready check (startup may be racy)")
+    qt = goal.get("quality_target")
+    if qt is not None:
+        if not isinstance(qt, (int, float)) or isinstance(qt, bool):
+            problems.append("goal.yaml: quality_target must be a number (0-10)")
+        if not (d / "quality.md").exists():
+            warnings.append("goal.yaml: quality_target set but no quality.md — quality-judge has no rubric")
 
     # cases.json
     cases_path = d / "cases.json"
