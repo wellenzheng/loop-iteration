@@ -1,6 +1,12 @@
 # --- loop-engineering scratch / eval workspace (test artifacts, not source) ---
 .loop-engineering-workspace/
 
+# --- self-iterate run state (local run history, not plugin source) ---
+.loop/
+
+# --- machine-local Claude Code settings (absolute paths / local allowlists) ---
+.claude/settings.local.json
+
 # --- dependencies ---
 node_modules/
 

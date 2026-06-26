@@ -52,8 +52,7 @@ decision. See [`.loop/progress.md`](.loop/progress.md) → *Next*.
 ## self-iterate (the plugin)
 
 This repo **is** a Claude Code plugin that self-iterates any agent's harness
-(prompt/skills/tools) until a verifiable goal is met. Design:
-[spec](docs/superpowers/specs/2026-06-23-plugin-ization-design.md).
+(prompt/skills/tools) until a verifiable goal is met.
 
 ### Install
 Place this repo in your Claude Code plugins dir (or your usual plugin-install path).
@@ -86,7 +85,7 @@ How each case is run against your agent — declarative, no code for the common 
 |---|---|---|
 | `claude-p` (default) | Claude-Code-native agent | nothing (runs `claude -p` in the worktree) |
 | `command` | agent has a CLI | `cmd` with `{variant_dir}`/`{query}` substituted, e.g. `["python","-m","src.agent.cli","--skills-dir","{variant_dir}","{query}"]` |
-| `python-import` | in-process agent (e.g. maas) | `module` + `entry` + `agent.venv: .venv`; a ~5-line `entry(query, variant_dir, **extra)` shim that loads your agent with `skills_dir=variant_dir` |
+| `python-import` | in-process agent | `module` + `entry` + `agent.venv: .venv`; a ~5-line `entry(query, variant_dir, **extra)` shim that loads your agent with `skills_dir=variant_dir` |
 | `custom` / omitted + `run_case.py` | bespoke | a drop-in `run_case.py` |
 
 Example (`command`, zero code if your agent has a CLI):

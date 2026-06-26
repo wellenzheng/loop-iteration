@@ -53,7 +53,7 @@ loop-iteration/
 - [ ] **Step 1: Move the package**
 
 ```bash
-cd /Users/zhengweijun/agent/loop-iteration
+cd loop-iteration  # repo root
 mkdir -p scripts
 git mv src/loop_iter scripts/loop_iter
 rmdir src 2>/dev/null || true
@@ -105,7 +105,7 @@ git commit -m "refactor: move loop_iter package from src/ to scripts/ (plugin bu
 - [ ] **Step 2: Move skills and agents to plugin root**
 
 ```bash
-cd /Users/zhengweijun/agent/loop-iteration
+cd loop-iteration  # repo root
 git mv .claude/skills skills
 git mv .claude/agents agents
 # remove .claude/ if now empty (leave it if it holds other state)
@@ -803,7 +803,7 @@ git commit -m "feat: update self-iterate/case-evaluator skills + maker for gener
 - [ ] **Step 1: Create the example toy repo layout**
 
 ```bash
-cd /Users/zhengweijun/agent/loop-iteration
+cd loop-iteration  # repo root
 mkdir -p examples/toy/.self-iterate/toy-basic
 git mv evals/toy-basic/goal.yaml examples/toy/.self-iterate/toy-basic/goal.yaml
 git mv evals/toy-basic/cases.json examples/toy/.self-iterate/toy-basic/cases.json
@@ -956,7 +956,7 @@ git commit -m "feat: add /self-iterate command + rewrite README for plugin shape
 - [ ] **Step 1: Full test suite**
 
 ```bash
-cd /Users/zhengweijun/agent/loop-iteration
+cd loop-iteration  # repo root
 .venv/bin/pytest -q
 ```
 Expected: all green.

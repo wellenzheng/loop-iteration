@@ -1,5 +1,0 @@
-run_id=20260623_a47e34
-round=1
-agent=toy
-goal=toy-basic
-worktree=/Users/zhengweijun/tmp/loopiter_wt__4zhxng7

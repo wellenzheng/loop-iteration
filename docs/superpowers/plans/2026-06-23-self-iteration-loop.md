@@ -142,7 +142,7 @@ __pycache__/
 - [ ] **Step 5: Create venv, install, run test — verify it passes**
 
 ```bash
-cd /Users/zhengweijun/agent/loop-iteration
+cd loop-iteration  # repo root
 python3.11 -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"

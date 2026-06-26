@@ -1,6 +1,6 @@
 {
   "name": "loop-iteration",
-  "owner": { "name": "loop-iteration" },
+  "owner": { "name": "wellenzheng" },
   "metadata": {
     "description": "self-iterate: a Claude-Code-native agent-harness self-iteration loop",
     "version": "0.1.0"
@@ -11,7 +11,7 @@
       "source": "./",
       "description": "Self-iterate any agent's harness (prompt/skills/tools) until a user-defined, verifiable goal is met. Users provide only a .self-iterate/<goal>/ eval spec; a generic claude-p adapter covers Claude-native agents, with a drop-in run_case.py escape hatch for others.",
       "version": "0.1.0",
-      "author": { "name": "loop-iteration" },
+      "author": { "name": "wellenzheng" },
       "category": "workflow",
       "keywords": ["self-iteration", "loop-engineering", "agent", "eval", "harness"]
     }

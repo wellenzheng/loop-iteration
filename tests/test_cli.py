@@ -141,7 +141,7 @@ def test_setup_resolves_agent_venv_without_pyyaml(tmp_path, monkeypatch):
 
 
 def test_setup_agent_venv_without_pip(tmp_path, monkeypatch):
-    """maas-style: the agent venv (uv-managed) has NO pip at all. setup must still work —
+    """uv-style: the agent venv (uv-managed) has NO pip at all. setup must still work —
     it must NOT try to shell out to pip (the deps are the agent owner's responsibility)."""
     import io, contextlib, sys as _sys
     from loop_iter.cli import main
@@ -604,7 +604,7 @@ def test_cli_case_run_writes_quality_when_quality_md_present(tmp_path, monkeypat
 
 def test_cli_quality_reliable_when_llm_degrades(tmp_path, monkeypatch):
     """Programmatic no_overfit gives a quality signal even when the LLM quality-judge degrades to None
-    (the maas flaky-judge scenario). Baseline with no hardcoding -> quality 10.0 despite LLM None."""
+    (the flaky-judge scenario). Baseline with no hardcoding -> quality 10.0 despite LLM None."""
     from loop_iter.cli import main
     from loop_iter.state import RunPaths, load_state
     repo = _repo(tmp_path)   # CLAUDE.md = "baseline" (no eval answer hardcoded)
