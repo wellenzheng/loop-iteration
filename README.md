@@ -55,8 +55,12 @@ This repo **is** a Claude Code plugin that self-iterates any agent's harness
 (prompt/skills/tools) until a verifiable goal is met.
 
 ### Install
-Place this repo in your Claude Code plugins dir (or your usual plugin-install path).
-Requires Python 3.11+. Then in any repo:
+Requires Python 3.11+. Add this repo as a Claude Code plugin marketplace and install:
+```
+/plugin marketplace add wellenzheng/loop-iteration
+/plugin install self-iterate@loop-iteration
+```
+Then in any repo:
 ```
 /self-iterate setup        # interactive: reads the repo, proposes the eval spec (goal.yaml/cases.json/
                            # gates.py/rubric.md/quality.md), confirms each with you, writes .self-iterate/<goal>/,
