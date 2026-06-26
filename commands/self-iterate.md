@@ -6,7 +6,7 @@ description: Self-iterate the current repo's agent harness toward a goal until a
 
 Usage:
 - `/self-iterate setup` — interactive: dispatches the `self-iterate-setup` skill, which reads the
-  repo, proposes the eval spec (goal.yaml/cases.json/gates.py/judge.md/quality.md), confirms each
+  repo, proposes the eval spec (goal.yaml/cases.json/gates.py/rubric.md/quality.md), confirms each
   piece with you, writes it to `.self-iterate/<goal>/`, self-validates, then resolves the Python env
   (`agent.venv` or bootstrap) to `.self-iterate/.python`.
 - `/self-iterate start <goal>` — runs the built-in state-machine loop to completion (baseline →
@@ -23,6 +23,6 @@ ralph/autopilot needed. The loop never auto-merges; `report` writes `winner.diff
 you decide whether to merge the winning worktree.
 
 ## Before first use
-Create `.self-iterate/<goal>/` with `goal.yaml`, `cases.json`, `gates.py`, `judge.md`
+Create `.self-iterate/<goal>/` with `goal.yaml`, `cases.json`, `gates.py`, `rubric.md`
 (copy `examples/toy/.self-iterate/toy-basic/` as a template). For a non-Claude-CLI agent, add a
 `run_case.py` escape hatch.

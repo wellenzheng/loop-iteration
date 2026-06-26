@@ -188,12 +188,12 @@ def test_cli_baseline_runs_cases_and_advances_to_maker(tmp_path, monkeypatch):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("score len")
+    (ev / "rubric.md").write_text("score len")
     # init first
     main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
     # stub run_cases so we don't need a real agent/llm
     captured = {}
-    def fake_run_cases(cases, worktree, gates_path, judge_md, weights, run_case_fn, judge_case_fn=None, llm_call=None):
+    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights, run_case_fn, judge_case_fn=None, llm_call=None):
         captured["called"] = True
         return {"cases": [], "composite": 0.5, "gate_pass_rates": {}, "judge_means": {}}
     monkeypatch.setattr("loop_iter.cli.run_cases", fake_run_cases, raising=False)
@@ -221,7 +221,7 @@ def test_cli_baseline_refuses_wrong_phase(tmp_path, monkeypatch):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text("[]")
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     rp = RunPaths(base=str(repo), run_id="r1")
     init_state(rp, "g", 3)
     advance_to = rp  # force phase out of baseline
@@ -306,7 +306,7 @@ def test_cli_case_run_advances_eval_to_goalcheck_inside_run(tmp_path, monkeypatc
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
     import loop_iter.state as stmod
     st = load_state(rp); st["phase"] = "eval"; st["round"] = 1; stmod.write_state(rp, st)
@@ -351,7 +351,7 @@ def test_cli_case_run_refuses_wrong_phase(tmp_path, monkeypatch):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
     st = load_state(rp); st["phase"] = "goalcheck"; write_state(rp, st)   # wrong phase for case-run
     import loop_iter.case_runner as cr
@@ -449,13 +449,13 @@ def test_e2e_state_machine_full_flow(tmp_path, monkeypatch):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 2\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     rp = RunPaths(base=str(repo), run_id="e2e")
     # stub run_cases: round 1 composite 0.5 (not met), round 2 composite 0.9 (met).
     # NOTE: baseline ALSO calls run_cases (call #1), so round-1 case-run is call #2,
     # round-2 case-run is call #3.
     calls = {"n": 0}
-    def fake_run_cases(cases, worktree, gates_path, judge_md, weights, run_case_fn, judge_case_fn=None, llm_call=None):
+    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights, run_case_fn, judge_case_fn=None, llm_call=None):
         calls["n"] += 1
         comp = 0.5 if calls["n"] <= 2 else 0.9
         return {"cases": [], "composite": comp, "gate_pass_rates": {"x": 1.0}, "judge_means": {}}
@@ -518,7 +518,7 @@ def test_cli_baseline_computes_quality_when_quality_md_present(tmp_path, monkeyp
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("rubric: be clear")
     rp = RunPaths(base=str(repo), run_id="r1")
     main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
@@ -545,7 +545,7 @@ def test_cli_baseline_skips_quality_when_no_quality_md(tmp_path, monkeypatch):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     # NO quality.md
     rp = RunPaths(base=str(repo), run_id="r1")
     main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
@@ -570,7 +570,7 @@ def test_cli_case_run_writes_quality_when_quality_md_present(tmp_path, monkeypat
     (ev / "goal.yaml").write_text("harness: [CLAUDE.md]\nthreshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("rubric: be clear")
     # a DISTINCT worktree dir whose CLAUDE.md differs from the base, so we can prove
     # judge_quality was fed the WORKTREE's harness, not the base's
@@ -612,7 +612,7 @@ def test_cli_quality_reliable_when_llm_degrades(tmp_path, monkeypatch):
     (ev / "goal.yaml").write_text("harness: [CLAUDE.md]\nthreshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"a distinctive long query here","expected":"PARIS"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("rubric: clarity")
     rp = RunPaths(base=str(repo), run_id="r1")
     main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
@@ -645,7 +645,7 @@ def test_cli_quality_drops_when_harness_hardcodes_answer(tmp_path, monkeypatch):
     (ev / "goal.yaml").write_text("harness: [CLAUDE.md]\nthreshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"capital of France","expected":"Paris"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("rubric: clarity")
     rp = RunPaths(base=str(repo), run_id="r1")
     main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
@@ -667,7 +667,7 @@ def test_cli_smoke_runs_one_case_no_state(tmp_path, monkeypatch):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"},{"id":"c2","query":"yo","expected":"yo"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     import loop_iter.adapter_generic as ag
     monkeypatch.setattr(ag, "build_run_case", lambda eval_dir, cfg, harness:
                         (lambda case, worktree: {"case_id": case["id"], "output": "ok", "trace": {}, "error": None}))
@@ -688,7 +688,7 @@ def test_cli_smoke_exits_1_on_error(tmp_path, monkeypatch):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     import loop_iter.adapter_generic as ag
     monkeypatch.setattr(ag, "build_run_case", lambda eval_dir, cfg, harness:
                         (lambda case, worktree: {"case_id": case["id"], "output": "", "trace": {}, "error": "boom"}))
@@ -708,7 +708,7 @@ def test_cli_smoke_handles_service_adapter(tmp_path, monkeypatch):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
 
     class FakeSvc(ServiceAdapter):
         def __init__(self):
@@ -736,7 +736,7 @@ def test_cli_quality_merge_round(tmp_path):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\nquality_target: 8.0\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("clarity / maintainability")
     rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
     (rp.run_dir / "quality.json").write_text('{"round": 1, "quality": 10.0, "quality_dims": [{"dim": "no_overfit", "score": 10.0}]}')
@@ -765,7 +765,7 @@ def test_cli_quality_merge_baseline(tmp_path):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\nquality_target: 8.0\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("clarity")
     rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
     rp.baseline_file.write_text('{"composite": 0.5, "quality": 10.0, "quality_dims": [{"dim":"no_overfit","score":10.0}]}')
@@ -790,7 +790,7 @@ def test_cli_quality_merge_overrides_subagent_no_overfit(tmp_path):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("clarity")
     rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
     (rp.run_dir / "quality.json").write_text('{"round": 1, "quality": 10.0, "quality_dims": [{"dim": "no_overfit", "score": 10.0}]}')
@@ -816,7 +816,7 @@ def test_cli_case_run_skips_llm_quality_when_quality_target_set(tmp_path, monkey
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\nquality_target: 8.0\nharness: [CLAUDE.md]\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("clarity")
     rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
     import loop_iter.state as stmod
@@ -844,7 +844,7 @@ def test_cli_case_run_keeps_llm_quality_when_no_quality_target(tmp_path, monkeyp
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\nharness: [CLAUDE.md]\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("clarity")
     rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
     import loop_iter.state as stmod
@@ -870,7 +870,7 @@ def test_cli_quality_merge_round_not_found_errors(tmp_path):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("clarity")
     rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
     (rp.run_dir / "quality.json").write_text('{"round": 1, "quality": 10.0, "quality_dims": [{"dim":"no_overfit","score":10.0}]}')
@@ -891,7 +891,7 @@ def test_cli_quality_merge_malformed_json_errors(tmp_path):
     (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("clarity")
     rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
     (rp.run_dir / "quality.json").write_text('{"round": 1, "quality": 10.0, "quality_dims": [{"dim":"no_overfit","score":10.0}]}')

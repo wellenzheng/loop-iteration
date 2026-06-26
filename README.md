@@ -60,7 +60,7 @@ Place this repo in your Claude Code plugins dir (or your usual plugin-install pa
 Requires Python 3.11+. Then in any repo:
 ```
 /self-iterate setup        # interactive: reads the repo, proposes the eval spec (goal.yaml/cases.json/
-                           # gates.py/judge.md/quality.md), confirms each with you, writes .self-iterate/<goal>/,
+                           # gates.py/rubric.md/quality.md), confirms each with you, writes .self-iterate/<goal>/,
                            # self-validates, then resolves the Python env (agent.venv or bootstrap -> .self-iterate/.python).
 ```
 
@@ -72,7 +72,7 @@ hand-write it:
   goal.yaml     # threshold, weights, regression, optional agent:/harness: overrides
   cases.json    # your QA set
   gates.py      # your programmatic gates (GATES = {name: fn})
-  judge.md      # your LLM-rubric dims
+  rubric.md     # your LLM-rubric dims
   quality.md    # OPTIONAL — rubric judging the harness FILES themselves (guardrail: a round whose
                 #            quality regresses below baseline can't satisfy the goal or be the winner)
   # optional run_case.py — escape hatch for non-Claude-CLI agents (e.g. a service)

@@ -118,10 +118,10 @@ def validate_spec(eval_dir: str) -> dict:
                     if not callable(fn):
                         problems.append(f"gates.py: GATES[{name!r}] is not callable")
 
-    # judge.md
-    judge_path = d / "judge.md"
-    if not judge_path.exists() or not judge_path.read_text().strip():
-        problems.append("judge.md: missing or empty")
+    # rubric.md (the agent-output eval rubric; legacy name judge.md still accepted)
+    rubric = (d / "rubric.md") if (d / "rubric.md").exists() else (d / "judge.md")
+    if not rubric.exists() or not rubric.read_text().strip():
+        problems.append("rubric.md: missing or empty (the agent-output eval rubric)")
 
     # quality.md (optional)
     qpath = d / "quality.md"

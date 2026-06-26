@@ -1,6 +1,6 @@
 ---
 name: self-iterate-setup
-description: Interactive setup for the self-iterate loop. Reads the current repo, detects the agent's entry type, asks the user for the optimization goal, proposes a complete eval spec (goal.yaml/cases.json/gates.py/judge.md/quality.md + the adapter's entry file), confirms each piece, writes it to .self-iterate/<goal>/, self-validates via cli `validate-spec`, then resolves the Python env via cli `setup`. Use when the user runs "/self-iterate setup".
+description: Interactive setup for the self-iterate loop. Reads the current repo, detects the agent's entry type, asks the user for the optimization goal, proposes a complete eval spec (goal.yaml/cases.json/gates.py/rubric.md/quality.md + the adapter's entry file), confirms each piece, writes it to .self-iterate/<goal>/, self-validates via cli `validate-spec`, then resolves the Python env via cli `setup`. Use when the user runs "/self-iterate setup".
 ---
 
 # self-iterate-setup (interactive)
@@ -115,7 +115,7 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
 - `cases.json` — non-empty list of `{id, query, expected?}` (3-6 cases probing the goal).
 - `gates.py` — `GATES = {name: fn}` where `fn(result, case) -> {"passed": bool}`, reading
   `result["output"]`. Programmatic + verifiable.
-- `judge.md` — 1-2 LLM-rubric dims (0-10) scoring the agent's OUTPUT.
+- `rubric.md` — 1-2 LLM-rubric dims (0-10) scoring the agent's OUTPUT.
 - `quality.md` — OPTIONAL supplementary context for the quality-judge (the quality-judge uses a
   built-in industry-standard 规范度 rubric by default; quality.md adds extra emphasis only).
 - the adapter's extra file — the entry shim (`python-import`) or `adapter.py` (`custom`), if the
@@ -135,7 +135,7 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
    if several (don't default). Propose a kebab-case `<goal>` dir name; CONFIRM.
 4. **Ask the eval criteria (rubric).** Propose + CONFIRM the gates (programmatic, verifiable,
    reading `result["output"]`) and the judge dims (LLM 0-10 on the output). These become `gates.py`
-   + `judge.md`.
+   + `rubric.md`.
    - Ask whether to set `quality_target` (opt-in auxiliary target on harness 规范度 — when set, the
      loop also drives harness cleanup via a quality-judge sub-agent that scores against a BUILT-IN
      industry-standard 规范度 rubric, NOT a user quality.md; `met` then requires
@@ -152,7 +152,7 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
    `agent:` block in goal.yaml + the shim (`python-import`) / `adapter.py` (`custom`) / start cmd
    (`local-service`), filled from the confirmed entry (step 5). Read the user's agent code to fill
    it.
-8. **Adapt the eval data.** Write `cases.json`, `gates.py`, `judge.md`, `quality.md`, `goal.yaml` —
+8. **Adapt the eval data.** Write `cases.json`, `gates.py`, `rubric.md`, `quality.md`, `goal.yaml` —
    all matched to the confirmed goal + agent (Required files checklist — none missing).
 
 ### Phase 3 · Verify (can the agent be called correctly)
