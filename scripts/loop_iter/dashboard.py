@@ -81,6 +81,8 @@ def serve(eval_dir: str, run_id: str, base: str = ".", port: int = 0):
     server = HTTPServer(("127.0.0.1", port), _Handler)
     server.run_dir = run_dir  # type: ignore
     actual_port = server.server_address[1]
-    print(json.dumps({"url": f"http://127.0.0.1:{actual_port}", "port": actual_port,
-                      "run_dir": str(run_dir)}))
+    url = f"http://127.0.0.1:{actual_port}"
+    print(json.dumps({"url": url, "port": actual_port, "run_dir": str(run_dir)}))
+    import webbrowser
+    webbrowser.open(url)
     server.serve_forever()
