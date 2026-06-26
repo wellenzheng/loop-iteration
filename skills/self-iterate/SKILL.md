@@ -27,6 +27,15 @@ PY=$(cat .self-iterate/.python 2>/dev/null || echo python)
 Use `"$PY"` for every cli call below. `<plugin>` = this plugin's root.
 
 ## Loop
+**Dashboard (optional).** To watch the loop live, start the dashboard in the background before
+init:
+```
+"$PY" <plugin>/scripts/loop_iter/cli.py dashboard --eval .self-iterate/<goal> --run-id <run_id> --base . &
+```
+It prints a URL (e.g. `http://127.0.0.1:<port>`). Open it in a browser — the page polls every 1.5s
+and shows live progress, per-round scores, quality dims, case comparison, and the winner diff. The
+dashboard is read-only; it never drives the loop.
+
 1. **Init** (once): `"$PY" <plugin>/scripts/loop_iter/cli.py init --goal <goal> --eval .self-iterate/<goal> --run-id <run_id>`. Creates `state.json` at `phase=baseline`.
 2. **Baseline** (once): `"$PY" <plugin>/scripts/loop_iter/cli.py baseline --eval .self-iterate/<goal> --run-id <run_id>`. Scores the unmodified harness, writes `baseline.json`, advances to `phase=maker`, `round=1`.
    *(If goal.yaml sets `quality_target`, quality becomes an auxiliary optimization target: the
