@@ -54,6 +54,12 @@ def check_and_advance(rp: RunPaths, goal_path: str, best_gate_rates: dict | None
             v["met"] = False
             v["reason"] = (f"quality regression: {latest_q:.2f} < baseline {bq:.2f} "
                            f"- tol {tol}")
+    # quality_target: an absolute floor on quality (opt-in). When set, met requires quality >= target.
+    qt = goal.get("quality_target")
+    if qt is not None and latest_q is not None and latest_q < qt:
+        if v["met"]:
+            v["met"] = False
+            v["reason"] = (f"quality below target: {latest_q:.2f} < quality_target {qt}")
     # phase transition
     if v["met"]:
         st["met"] = True

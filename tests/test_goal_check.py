@@ -103,3 +103,32 @@ def test_check_and_advance_no_baseline_quality_skips_guardrail(tmp_path):
     append_round(rp, {"round": 1, "composite": 0.9, "quality": 4.0, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
     v = check_and_advance(rp, _goal_yaml(tmp_path, threshold=0.8, max_rounds=3), None)
     assert v["met"] is True                       # no baseline_quality -> guardrail inactive
+
+def test_check_and_advance_quality_target_blocks_met_when_below(tmp_path):
+    rp = RunPaths(base=str(tmp_path), run_id="r1"); init_state(rp, "g", 3)
+    write_state(rp, {**load_state(rp), "phase": "goalcheck", "round": 1, "baseline_quality": 5.0})
+    append_round(rp, {"round": 1, "composite": 0.9, "quality": 7.0, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    gp = tmp_path / "goal.yaml"
+    gp.write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\nquality_target: 8.0\n")
+    v = check_and_advance(rp, str(gp), None)
+    # quality 7.0 >= baseline 5.0 - 0.5 (no regression) BUT 7.0 < quality_target 8.0 -> quality_target blocks
+    assert v["met"] is False
+    assert "target" in v["reason"].lower()
+    assert load_state(rp)["phase"] == "maker" and load_state(rp)["round"] == 2
+
+def test_check_and_advance_quality_target_met_when_at_or_above(tmp_path):
+    rp = RunPaths(base=str(tmp_path), run_id="r1"); init_state(rp, "g", 3)
+    write_state(rp, {**load_state(rp), "phase": "goalcheck", "round": 1, "baseline_quality": 9.0})
+    append_round(rp, {"round": 1, "composite": 0.9, "quality": 8.5, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    gp = tmp_path / "goal.yaml"
+    gp.write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\nquality_target: 8.0\n")
+    v = check_and_advance(rp, str(gp), None)
+    assert v["met"] is True
+    assert load_state(rp)["phase"] == "done"
+
+def test_check_and_advance_no_quality_target_unaffected(tmp_path):
+    rp = RunPaths(base=str(tmp_path), run_id="r1"); init_state(rp, "g", 3)
+    write_state(rp, {**load_state(rp), "phase": "goalcheck", "round": 1, "baseline_quality": 9.0})
+    append_round(rp, {"round": 1, "composite": 0.9, "quality": 3.0, "gate_pass_rates": {"x": 1.0}, "cases": [], "judge_means": {}})
+    v = check_and_advance(rp, _goal_yaml(tmp_path, threshold=0.8, max_rounds=3), None)
+    assert v["met"] is False   # quality regression (Plan 2), not quality_target
