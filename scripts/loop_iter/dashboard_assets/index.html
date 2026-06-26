@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>self-iterate dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; padding: 16px; }
+  h1 { font-size: 1.4rem; margin-bottom: 12px; }
+  h2 { font-size: 1.1rem; margin-bottom: 8px; color: #58a6ff; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .panel { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; }
+  .full { grid-column: 1 / -1; }
+  .stat { display: inline-block; margin-right: 16px; }
+  .stat b { color: #58a6ff; }
+  .phase-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.85rem; }
+  .phase-done { background: #1a7f37; color: #fff; }
+  .phase-running { background: #1f6feb; color: #fff; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #30363d; }
+  th { color: #8b949e; }
+  .diff-add { color: #3fb950; }
+  .diff-del { color: #f85149; }
+  .diff-meta { color: #8b949e; }
+  pre { font-size: 0.8rem; overflow-x: auto; max-height: 400px; }
+  select { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; padding: 4px; border-radius: 4px; }
+  .case-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .case-box { background: #0d1117; border: 1px solid #30363d; padding: 8px; border-radius: 4px; font-size: 0.85rem; min-height: 60px; }
+  .quality-bar { height: 12px; border-radius: 3px; background: #1f6feb; display: inline-block; vertical-align: middle; }
+  .quality-target { color: #f0883e; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>self-iterate dashboard</h1>
+<div id="app">Loading…</div>
+<script>
+const POLL_MS = 1500;
+let lastData = null;
+
+async function fetchState() {
+  try {
+    const r = await fetch('/api/state');
+    return await r.json();
+  } catch (e) { return null; }
+}
+
+function render(data) {
+  if (!data) { document.getElementById('app').innerHTML = '<p>Waiting for run data…</p>'; return; }
+  lastData = data;
+  const phase = data.phase || '—';
+  const met = data.met;
+  const round = data.round || 0;
+  const maxRounds = data.max_rounds || '—';
+  const baselineComp = data.baseline_composite ?? '—';
+  const baselineQual = data.baseline_quality ?? '—';
+  const best = data.best || {};
+  const rounds = data.rounds || [];
+  const baseline = data.baseline || {};
+  const latestQ = data.latest_quality || {};
+  const diff = data.winner_diff || '';
+
+  // Panel 1: Live progress
+  const phaseClass = phase === 'done' ? 'phase-done' : 'phase-running';
+  let progress = `
+    <div class="panel full">
+      <h2>Live Progress</h2>
+      <span class="stat">Phase: <span class="phase-badge ${phaseClass}">${phase}</span></span>
+      <span class="stat">Round: <b>${round}</b> / ${maxRounds}</span>
+      <span class="stat">Met: <b>${met === true ? '✅' : met === false ? '❌' : '—'}</b></span>
+      <span class="stat">Baseline composite: <b>${baselineComp}</b></span>
+      <span class="stat">Baseline quality: <b>${baselineQual}</b></span>
+      ${best.round ? `<span class="stat">Best: <b>round ${best.round}</b> (composite ${best.composite})</span>` : ''}
+    </div>`;
+
+  // Panel 2: Results overview (trajectory)
+  let overview = `<div class="panel"><h2>Results Overview</h2>`;
+  if (rounds.length) {
+    overview += `<table><tr><th>Round</th><th>Composite</th><th>Quality</th><th>Gates</th></tr>`;
+    rounds.forEach(r => {
+      const gates = Object.entries(r.gate_pass_rates || {}).map(([k,v]) => `${k}: ${(v*100).toFixed(0)}%`).join(', ');
+      overview += `<tr><td>${r.round}</td><td>${(r.composite*100).toFixed(0)}%</td><td>${r.quality?.toFixed(1) ?? '—'}</td><td>${gates}</td></tr>`;
+    });
+    overview += `</table>`;
+    // simple SVG trajectory
+    if (rounds.length >= 1) {
+      overview += svgTrajectory(rounds, data);
+    }
+  } else {
+    overview += `<p>No rounds yet.</p>`;
+  }
+  overview += `</div>`;
+
+  // Panel 3: Quality ratings
+  let quality = `<div class="panel"><h2>Quality Ratings</h2>`;
+  if (latestQ.quality_dims?.length) {
+    quality += `<table><tr><th>Dim</th><th>Score</th><th>Bar</th></tr>`;
+    latestQ.quality_dims.forEach(d => {
+      const bar = `<span class="quality-bar" style="width:${d.score*10}px"></span>`;
+      quality += `<tr><td>${d.dim}</td><td>${d.score.toFixed(1)}</td><td>${bar}</td></tr>`;
+    });
+    quality += `</table>`;
+    quality += `<p>Overall: <b>${latestQ.quality?.toFixed(2)}</b>`;
+    if (data.quality_target) quality += ` <span class="quality-target">(target: ${data.quality_target})</span>`;
+    quality += `</p>`;
+    if (latestQ.maker_feedback) quality += `<p style="margin-top:8px;font-size:0.85rem;color:#8b949e">Feedback: ${latestQ.maker_feedback}</p>`;
+  } else {
+    quality += `<p>No quality data yet.</p>`;
+  }
+  quality += `</div>`;
+
+  // Panel 4: Case comparison
+  let casePanel = `<div class="panel"><h2>Case Comparison</h2>`;
+  if (rounds.length && rounds[0].cases?.length) {
+    const caseIds = rounds[0].cases.map(c => c.case_id);
+    casePanel += `<select id="caseSelect">${caseIds.map(id => `<option value="${id}">${id}</option>`).join('')}</select>`;
+    casePanel += `<select id="roundSelect" style="margin-left:8px">`;
+    rounds.forEach(r => { casePanel += `<option value="${r.round}">Round ${r.round}</option>`; });
+    casePanel += `</select>`;
+    casePanel += `<div class="case-compare" style="margin-top:8px"><div><b>Baseline</b><div class="case-box" id="baselineOutput">—</div></div><div><b>Selected</b><div class="case-box" id="selectedOutput">—</div></div></div>`;
+    casePanel += `<script>function updateCase(){const cid=document.getElementById('caseSelect').value;const rid=parseInt(document.getElementById('roundSelect').value);const rounds=lastData.rounds||[];const r=rounds.find(r=>r.round===rid);const c=r?.cases?.find(c=>c.case_id===cid);document.getElementById('selectedOutput').textContent=c?.output||'(no data)';const bl=lastData.baseline?.cases?.find(c=>c.case_id===cid);document.getElementById('baselineOutput').textContent=bl?.output||'(no baseline case data)';}document.getElementById('caseSelect').addEventListener('change',updateCase);document.getElementById('roundSelect').addEventListener('change',updateCase);updateCase();<\/script>`;
+  } else {
+    casePanel += `<p>No case data yet.</p>`;
+  }
+  casePanel += `</div>`;
+
+  // Panel 5: Diff
+  let diffPanel = `<div class="panel full"><h2>Diff (winner vs baseline)</h2>`;
+  if (diff) {
+    const lines = diff.split('\n').map(l => {
+      if (l.startsWith('+++') || l.startsWith('---')) return `<span class="diff-meta">${l}</span>`;
+      if (l.startsWith('+')) return `<span class="diff-add">${l}</span>`;
+      if (l.startsWith('-')) return `<span class="diff-del">${l}</span>`;
+      return l;
+    }).join('\n');
+    diffPanel += `<pre>${lines}</pre>`;
+  } else {
+    diffPanel += `<p>No diff yet (run not complete).</p>`;
+  }
+  diffPanel += `</div>`;
+
+  document.getElementById('app').innerHTML = progress + `<div class="grid">` + overview + quality + casePanel + `</div>` + diffPanel;
+}
+
+function svgTrajectory(rounds, data) {
+  const w = 280, h = 80, pad = 20;
+  const maxRound = Math.max(rounds.length, 1);
+  const compPoints = rounds.map((r, i) => `${pad + i*(w-2*pad)/Math.max(maxRound-1,1)},${h-pad - (r.composite||0)*(h-2*pad)}`).join(' ');
+  const qualPoints = rounds.map((r, i) => {
+    const q = r.quality ? (r.quality/10) : 0;
+    return `${pad + i*(w-2*pad)/Math.max(maxRound-1,1)},${h-pad - q*(h-2*pad)}`;
+  }).join(' ');
+  return `<svg width="${w}" height="${h}" style="margin-top:8px">
+    <text x="${pad}" y="12" font-size="9" fill="#3fb950">composite</text>
+    <text x="${w-pad-30}" y="12" font-size="9" fill="#f0883e">quality</text>
+    <polyline points="${compPoints}" fill="none" stroke="#3fb950" stroke-width="1.5"/>
+    <polyline points="${qualPoints}" fill="none" stroke="#f0883e" stroke-width="1.5"/>
+  </svg>`;
+}
+
+async function poll() {
+  const data = await fetchState();
+  render(data);
+}
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

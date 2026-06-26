@@ -326,6 +326,11 @@ def _quality_merge(args):
         print(json.dumps({"round": args.round, "quality": q["quality"]}))
 
 
+def _dashboard(args):
+    from loop_iter.dashboard import serve
+    serve(eval_dir=args.eval, run_id=args.run_id, base=args.base, port=args.port)
+
+
 def _load_dotenv(path: str = ".env") -> None:
     """Load KEY=VALUE from .env into os.environ via setdefault (explicit env wins).
     Shell-safe python parse (zsh `source` chokes on some .env lines). No-op if absent."""
@@ -416,6 +421,13 @@ def main(argv=None):
     g.add_argument("--baseline", action="store_true")
     g.add_argument("--round", type=int)
     s.set_defaults(func=_quality_merge)
+
+    s = sub.add_parser("dashboard")
+    s.add_argument("--eval", required=True)
+    s.add_argument("--run-id", required=True)
+    s.add_argument("--base", default=".")
+    s.add_argument("--port", type=int, default=0)
+    s.set_defaults(func=_dashboard)
 
     a = ap.parse_args(argv)
     a.func(a)
