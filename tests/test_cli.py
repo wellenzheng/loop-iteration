@@ -902,3 +902,24 @@ def test_cli_quality_merge_malformed_json_errors(tmp_path):
         assert False, "should error on malformed JSON"
     except SystemExit as e:
         assert "invalid quality-judge JSON" in str(e)
+
+
+def test_cli_dashboard_starts_and_serves(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "rubric.md").write_text("x")
+    from loop_iter.state import RunPaths, init_state
+    rp = RunPaths(base=str(repo), run_id="d1"); init_state(rp, "g", 3)
+    import loop_iter.dashboard as dash
+    def fake_serve(eval_dir, run_id, base, port=0):
+        print(json.dumps({"url": "http://127.0.0.1:9999", "port": 9999}))
+    monkeypatch.setattr(dash, "serve", fake_serve)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["dashboard", "--eval", str(ev), "--run-id", "d1", "--base", str(repo)])
+    out = json.loads(buf.getvalue())
+    assert "url" in out and "port" in out
