@@ -11,7 +11,7 @@ def test_judge_case_parses_strict_json():
     out = judge_case(
         result={"output": "hi", "trace": {}, "error": None},
         case={"id": "c1", "query": "q", "expected": None},
-        judge_md="Score tone 0-10.",
+        rubric_md="Score tone 0-10.",
         llm_call=llm,
     )
     assert out == [{"dim": "tone", "score": 8.0}]
@@ -25,7 +25,7 @@ def test_judge_case_retries_then_falls_back_to_none():
     out = judge_case(
         result={"output": "hi", "trace": {}, "error": None},
         case={"id": "c1", "query": "q", "expected": None},
-        judge_md="x",
+        rubric_md="x",
         llm_call=llm,
     )
     assert out is None          # gates-only fallback signal
@@ -37,7 +37,7 @@ def test_judge_case_succeeds_on_retry():
     out = judge_case(
         result={"output": "hi", "trace": {}, "error": None},
         case={"id": "c1", "query": "q", "expected": None},
-        judge_md="x",
+        rubric_md="x",
         llm_call=lambda p, m: next(seq),
     )
     assert out == [{"dim": "tone", "score": 7.0}]
@@ -51,7 +51,7 @@ def test_judge_case_falls_back_when_llm_call_raises():
     out = judge_case(
         result={"output": "hi", "trace": {}, "error": None},
         case={"id": "c1", "query": "q", "expected": None},
-        judge_md="x",
+        rubric_md="x",
         llm_call=llm,
     )
     assert out is None          # gates-only fallback, never crashed the round

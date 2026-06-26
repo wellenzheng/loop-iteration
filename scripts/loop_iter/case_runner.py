@@ -5,7 +5,7 @@ from loop_iter.scoring import composite, gate_pass_rates, judge_means
 from loop_iter.adapter_generic import ServiceAdapter
 
 def run_cases(cases: list[dict], worktree: str,
-              gates_path: str, judge_md: str, weights: dict[str, float],
+              gates_path: str, rubric_md: str, weights: dict[str, float],
               run_case_fn, judge_case_fn=_default_judge, llm_call=None) -> dict:
     """Run every case through run_case_fn(case, worktree), then gates + judge -> RunScores.
 
@@ -23,7 +23,7 @@ def run_cases(cases: list[dict], worktree: str,
             result = (service.run_case(case, worktree) if service is not None
                       else run_case_fn(case, worktree))
             gate_results = run_gates(result, case, gates)
-            judged = judge_case_fn(result, case, judge_md, llm_call)
+            judged = judge_case_fn(result, case, rubric_md, llm_call)
             case_scores.append({
                 "case_id": case["id"],
                 "output": result.get("output", ""),

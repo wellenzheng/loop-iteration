@@ -13,6 +13,12 @@ import subprocess
 from pathlib import Path
 
 
+def _rubric_path(ev: Path) -> Path:
+    """The user's output-eval rubric file. Prefers rubric.md; falls back to judge.md (legacy)."""
+    r = ev / "rubric.md"
+    return r if r.exists() else (ev / "judge.md")
+
+
 def _apply_variant(args):
     from loop_iter.adapter import apply_variant
     from loop_iter.adapter_generic import resolve_harness
@@ -61,7 +67,7 @@ def _case_run(args):
     rc = build_run_case(args.eval, goal.get("agent", {}), harness)
     from loop_iter.llm_client import chat as llm_call
     out = run_cases(cases, args.worktree, str(ev / "gates.py"),
-                    (ev / "judge.md").read_text(), goal["weights"],
+                    _rubric_path(ev).read_text(), goal["weights"],
                     run_case_fn=rc, llm_call=llm_call)
     out["round"] = args.round
     # harness-quality guardrail (opt-in via quality.md); score the VARIANT's harness in the worktree
@@ -191,7 +197,7 @@ def _baseline(args):
     harness = resolve_harness(args.eval, args.base)
     rc = build_run_case(args.eval, goal.get("agent", {}), harness)
     out = run_cases(cases, args.base, str(ev / "gates.py"),
-                    (ev / "judge.md").read_text(), goal["weights"],
+                    _rubric_path(ev).read_text(), goal["weights"],
                     run_case_fn=rc, llm_call=llm_call)
     out["quality"], out["quality_dims"] = _compute_quality(
         ev, args.base, args.base, cases, llm_call, skip_llm=bool(goal.get("quality_target")))

@@ -18,7 +18,7 @@ def _parse_dims(text: str) -> list[dict] | None:
                 return None
     return clean or None
 
-def judge_case(result: dict, case: dict, judge_md: str, llm_call,
+def judge_case(result: dict, case: dict, rubric_md: str, llm_call,
                model: str = "glm-4.7") -> list[dict] | None:
     """Ask the LLM to score the case per the rubric. Returns [{dim, score}] or None.
 
@@ -28,7 +28,7 @@ def judge_case(result: dict, case: dict, judge_md: str, llm_call,
     gates-only for that case. llm_call(prompt, model) -> str.
     """
     prompt = (
-        f"{judge_md}\n\n"
+        f"{rubric_md}\n\n"
         f"Return ONLY strict JSON: {{\"dims\": [{{\"dim\": <name>, \"score\": <0-10>}}]}}.\n"
         f"Case query: {case.get('query')}\n"
         f"Expected: {case.get('expected')}\n"

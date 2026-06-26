@@ -26,7 +26,7 @@ def test_quality_target_flow_case_run_merge_goal_check(tmp_path, monkeypatch):
         "quality_target: 8.0\nharness: [CLAUDE.md]\n")
     (ev / "cases.json").write_text('[{"id":"c1","query":"q","expected":"q"}]')
     (ev / "gates.py").write_text("GATES = {}")
-    (ev / "judge.md").write_text("x")
+    (ev / "rubric.md").write_text("x")
     (ev / "quality.md").write_text("clarity / maintainability")
     rp = RunPaths(base=str(repo), run_id="qt")
     main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "qt", "--base", str(repo)])

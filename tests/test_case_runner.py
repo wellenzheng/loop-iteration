@@ -19,10 +19,10 @@ def test_run_cases_computes_composite(tmp_path):
     cases = [{"id": "c1", "query": "q", "expected": None},
              {"id": "c2", "query": "q", "expected": None}]
     rc = _stub_run_case({"c1": "OK", "c2": "nope"})
-    judge = lambda result, case, judge_md, llm_call: [{"dim": "tone", "score": 10.0}]
+    judge = lambda result, case, rubric_md, llm_call: [{"dim": "tone", "score": 10.0}]
     out = run_cases(
         cases=cases, worktree="/tmp/ignored",
-        gates_path=_gate_mod(tmp_path), judge_md="x",
+        gates_path=_gate_mod(tmp_path), rubric_md="x",
         weights={"gates": 1.0, "tone": 1.0},
         run_case_fn=rc, judge_case_fn=judge, llm_call=None,
     )
@@ -36,7 +36,7 @@ def test_run_cases_falls_back_to_gates_only_when_judge_none(tmp_path):
     judge = lambda *a, **k: None
     out = run_cases(
         cases=cases, worktree="/tmp/x",
-        gates_path=_gate_mod(tmp_path), judge_md="x",
+        gates_path=_gate_mod(tmp_path), rubric_md="x",
         weights={"gates": 1.0, "tone": 1.0},
         run_case_fn=rc, judge_case_fn=judge, llm_call=None,
     )

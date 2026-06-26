@@ -9,7 +9,7 @@ def _write_valid_spec(d: Path):
     (d / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
     (d / "gates.py").write_text(
         "def g(result, case):\n    return {'passed': True}\nGATES = {'g': g}\n")
-    (d / "judge.md").write_text("score conciseness 0-10")
+    (d / "rubric.md").write_text("score conciseness 0-10")
     (d / "quality.md").write_text("clarity / no_overfit / maintainability")
 
 
@@ -34,7 +34,7 @@ def test_goal_yaml_bad_types(tmp_path):
     (d / "goal.yaml").write_text("threshold: high\nmax_rounds: 3\nweights: {gates: 1.0}\n")
     (d / "cases.json").write_text("[]")
     (d / "gates.py").write_text("GATES = {}")
-    (d / "judge.md").write_text("x")
+    (d / "rubric.md").write_text("x")
     v = validate_spec(str(d))
     assert v["valid"] is False
     assert any("threshold" in p for p in v["problems"])
@@ -45,7 +45,7 @@ def test_max_rounds_must_be_positive_int(tmp_path):
     (d / "goal.yaml").write_text("threshold: 0.5\nmax_rounds: 0\nweights: {gates: 1.0}\n")
     (d / "cases.json").write_text("[]")
     (d / "gates.py").write_text("GATES={'g':lambda r,c:{'passed':True}}")
-    (d / "judge.md").write_text("x")
+    (d / "rubric.md").write_text("x")
     v = validate_spec(str(d))
     assert v["valid"] is False
     assert any("max_rounds" in p for p in v["problems"])
@@ -56,7 +56,7 @@ def test_cases_must_be_nonempty_list_with_id_query(tmp_path):
     (d / "goal.yaml").write_text("threshold: 0.5\nmax_rounds: 3\nweights: {gates: 1.0}\n")
     (d / "cases.json").write_text('[{"id":"c1"}]')  # missing query
     (d / "gates.py").write_text("GATES={'g':lambda r,c:{'passed':True}}")
-    (d / "judge.md").write_text("x")
+    (d / "rubric.md").write_text("x")
     v = validate_spec(str(d))
     assert v["valid"] is False
     assert any("query" in p for p in v["problems"])
@@ -67,7 +67,7 @@ def test_gates_py_must_define_GATES_dict_of_callables(tmp_path):
     (d / "goal.yaml").write_text("threshold: 0.5\nmax_rounds: 3\nweights: {gates: 1.0}\n")
     (d / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (d / "gates.py").write_text("GATES = {'g': 'not callable'}")  # value not callable
-    (d / "judge.md").write_text("x")
+    (d / "rubric.md").write_text("x")
     v = validate_spec(str(d))
     assert v["valid"] is False
     assert any("GATES" in p or "callable" in p for p in v["problems"])
@@ -78,7 +78,7 @@ def test_gates_py_syntax_error_is_problem(tmp_path):
     (d / "goal.yaml").write_text("threshold: 0.5\nmax_rounds: 3\nweights: {gates: 1.0}\n")
     (d / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (d / "gates.py").write_text("def broken(:\n")  # syntax error
-    (d / "judge.md").write_text("x")
+    (d / "rubric.md").write_text("x")
     v = validate_spec(str(d))
     assert v["valid"] is False
     assert any("gates.py" in p for p in v["problems"])
@@ -89,7 +89,7 @@ def test_quality_md_optional_warning(tmp_path):
     (d / "goal.yaml").write_text("threshold: 0.5\nmax_rounds: 3\nweights: {gates: 1.0}\n")
     (d / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (d / "gates.py").write_text("GATES={'g':lambda r,c:{'passed':True}}")
-    (d / "judge.md").write_text("x")
+    (d / "rubric.md").write_text("x")
     # no quality.md
     v = validate_spec(str(d))
     assert v["valid"] is True
@@ -111,7 +111,7 @@ def test_non_dict_goal_yaml_is_problem_not_crash(tmp_path):
     (d / "goal.yaml").write_text("just a string\n")  # scalar, not a mapping
     (d / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (d / "gates.py").write_text("GATES={'g':lambda r,c:{'passed':True}}")
-    (d / "judge.md").write_text("x")
+    (d / "rubric.md").write_text("x")
     v = validate_spec(str(d))   # must NOT raise
     assert v["valid"] is False
     assert any("mapping" in p for p in v["problems"])
@@ -122,7 +122,7 @@ def test_missing_GATES_is_problem(tmp_path):
     (d / "goal.yaml").write_text("threshold: 0.5\nmax_rounds: 3\nweights: {gates: 1.0}\n")
     (d / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (d / "gates.py").write_text("x = 1\n")  # no GATES
-    (d / "judge.md").write_text("x")
+    (d / "rubric.md").write_text("x")
     v = validate_spec(str(d))
     assert v["valid"] is False
     assert any("GATES" in p for p in v["problems"])
@@ -133,7 +133,7 @@ def test_bool_threshold_rejected(tmp_path):
     (d / "goal.yaml").write_text("threshold: true\nmax_rounds: 3\nweights: {gates: 1.0}\n")
     (d / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (d / "gates.py").write_text("GATES={'g':lambda r,c:{'passed':True}}")
-    (d / "judge.md").write_text("x")
+    (d / "rubric.md").write_text("x")
     v = validate_spec(str(d))
     assert v["valid"] is False
     assert any("threshold" in p for p in v["problems"])
@@ -187,7 +187,7 @@ def test_missing_pyyaml_reports_clear_problem(tmp_path, monkeypatch):
     (d / "goal.yaml").write_text("threshold: 0.5\nmax_rounds: 3\nweights: {gates: 1.0}\n")
     (d / "cases.json").write_text('[{"id":"c1","query":"q"}]')
     (d / "gates.py").write_text("GATES={'g':lambda r,c:{'passed':True}}")
-    (d / "judge.md").write_text("x")
+    (d / "rubric.md").write_text("x")
     real_import = builtins.__import__
 
     def fake_import(name, *a, **k):
