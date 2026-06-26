@@ -80,8 +80,7 @@ def validate_spec(eval_dir: str) -> dict:
             problems.append("goal.yaml: quality_target must be a number (0-10)")
         elif not (0 <= qt <= 10):
             problems.append("goal.yaml: quality_target must be in 0-10")
-        if not (d / "quality.md").exists():
-            problems.append("goal.yaml: quality_target set but no quality.md — quality-judge needs a rubric")
+        # quality-judge uses a built-in industry rubric; quality.md is optional supplementary
 
     # cases.json
     cases_path = d / "cases.json"

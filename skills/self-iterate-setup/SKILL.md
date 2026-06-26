@@ -116,7 +116,8 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
 - `gates.py` — `GATES = {name: fn}` where `fn(result, case) -> {"passed": bool}`, reading
   `result["output"]`. Programmatic + verifiable.
 - `judge.md` — 1-2 LLM-rubric dims (0-10) scoring the agent's OUTPUT.
-- `quality.md` — harness-quality rubric: clarity / no_overfit (auto-detected) / maintainability.
+- `quality.md` — OPTIONAL supplementary context for the quality-judge (the quality-judge uses a
+  built-in industry-standard 规范度 rubric by default; quality.md adds extra emphasis only).
 - the adapter's extra file — the entry shim (`python-import`) or `adapter.py` (`custom`), if the
   type needs one. (claude-p / command / local-service need none.)
 
@@ -136,7 +137,8 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
    reading `result["output"]`) and the judge dims (LLM 0-10 on the output). These become `gates.py`
    + `judge.md`.
    - Ask whether to set `quality_target` (opt-in auxiliary target on harness 规范度 — when set, the
-     loop also drives harness cleanup via a quality-judge sub-agent; `met` then requires
+     loop also drives harness cleanup via a quality-judge sub-agent that scores against a BUILT-IN
+     industry-standard 规范度 rubric, NOT a user quality.md; `met` then requires
      `quality ≥ quality_target`). If yes, add `quality_target: <float>` (recommend 8.0) to goal.yaml.
 5. **Ask the eval entry.** Propose + CONFIRM how cases invoke the agent — the adapter entry (start
    cmd / endpoint+request / shim / adapter.py). Fill it by reading the user's code (see Adapter
