@@ -68,7 +68,8 @@ def _case_run(args):
     from loop_iter.llm_client import chat as llm_call
     out = run_cases(cases, args.worktree, str(ev / "gates.py"),
                     _rubric_path(ev).read_text(), goal["weights"],
-                    run_case_fn=rc, llm_call=llm_call)
+                    run_case_fn=rc, llm_call=llm_call,
+                    parallelism=int(goal.get("parallelism") or 1))
     out["round"] = args.round
     # harness-quality guardrail (opt-in via quality.md); score the VARIANT's harness in the worktree
     out["quality"], out["quality_dims"] = _compute_quality(
@@ -198,7 +199,8 @@ def _baseline(args):
     rc = build_run_case(args.eval, goal.get("agent", {}), harness)
     out = run_cases(cases, args.base, str(ev / "gates.py"),
                     _rubric_path(ev).read_text(), goal["weights"],
-                    run_case_fn=rc, llm_call=llm_call)
+                    run_case_fn=rc, llm_call=llm_call,
+                    parallelism=int(goal.get("parallelism") or 1))
     out["quality"], out["quality_dims"] = _compute_quality(
         ev, args.base, args.base, cases, llm_call, skip_llm=bool(goal.get("quality_target")))
     rp.baseline_file.write_text(json.dumps(out, indent=2, ensure_ascii=False))

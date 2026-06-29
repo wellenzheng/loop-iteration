@@ -193,7 +193,7 @@ def test_cli_baseline_runs_cases_and_advances_to_maker(tmp_path, monkeypatch):
     main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
     # stub run_cases so we don't need a real agent/llm
     captured = {}
-    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights, run_case_fn, judge_case_fn=None, llm_call=None):
+    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights, run_case_fn, judge_case_fn=None, llm_call=None, parallelism=1):
         captured["called"] = True
         return {"cases": [], "composite": 0.5, "gate_pass_rates": {}, "judge_means": {}}
     monkeypatch.setattr("loop_iter.cli.run_cases", fake_run_cases, raising=False)
@@ -455,7 +455,7 @@ def test_e2e_state_machine_full_flow(tmp_path, monkeypatch):
     # NOTE: baseline ALSO calls run_cases (call #1), so round-1 case-run is call #2,
     # round-2 case-run is call #3.
     calls = {"n": 0}
-    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights, run_case_fn, judge_case_fn=None, llm_call=None):
+    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights, run_case_fn, judge_case_fn=None, llm_call=None, parallelism=1):
         calls["n"] += 1
         comp = 0.5 if calls["n"] <= 2 else 0.9
         return {"cases": [], "composite": comp, "gate_pass_rates": {"x": 1.0}, "judge_means": {}}
@@ -923,6 +923,81 @@ def test_cli_dashboard_starts_and_serves(tmp_path, monkeypatch):
         main(["dashboard", "--eval", str(ev), "--run-id", "d1", "--base", str(repo)])
     out = json.loads(buf.getvalue())
     assert "url" in out and "port" in out
+
+
+def test_cli_case_run_threads_parallelism_from_goal(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\nparallelism: 3\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "rubric.md").write_text("x")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    import loop_iter.state as stmod
+    st = stmod.load_state(rp); st["phase"] = "eval"; st["round"] = 1; stmod.write_state(rp, st)
+    captured = {}
+    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights,
+                        run_case_fn, judge_case_fn=None, llm_call=None, parallelism=1):
+        captured["parallelism"] = parallelism
+        return {"cases": [], "composite": 0.9, "gate_pass_rates": {}, "judge_means": {}}
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", fake_run_cases)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["case-run", "--eval", str(ev), "--worktree", str(repo),
+              "--run-id", "r1", "--base", str(repo), "--round", "1"])
+    assert captured["parallelism"] == 3
+
+
+def test_cli_case_run_defaults_parallelism_when_omitted(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "rubric.md").write_text("x")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    import loop_iter.state as stmod
+    st = stmod.load_state(rp); st["phase"] = "eval"; st["round"] = 1; stmod.write_state(rp, st)
+    captured = {}
+    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights,
+                        run_case_fn, judge_case_fn=None, llm_call=None, parallelism=1):
+        captured["parallelism"] = parallelism
+        return {"cases": [], "composite": 0.9, "gate_pass_rates": {}, "judge_means": {}}
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", fake_run_cases)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["case-run", "--eval", str(ev), "--worktree", str(repo),
+              "--run-id", "r1", "--base", str(repo), "--round", "1"])
+    assert captured["parallelism"] == 1
+
+
+def test_cli_baseline_threads_parallelism_from_goal(tmp_path, monkeypatch):
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\nparallelism: 3\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "rubric.md").write_text("x")
+    main(["init", "--goal", "g", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    captured = {}
+    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights,
+                        run_case_fn, judge_case_fn=None, llm_call=None, parallelism=1):
+        captured["parallelism"] = parallelism
+        return {"cases": [], "composite": 0.5, "gate_pass_rates": {}, "judge_means": {}}
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", fake_run_cases)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["baseline", "--eval", str(ev), "--run-id", "r1", "--base", str(repo)])
+    assert captured["parallelism"] == 3
 
 
 def test_cli_import_cases_from_csv(tmp_path):
