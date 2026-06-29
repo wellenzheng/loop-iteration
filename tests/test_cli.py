@@ -977,6 +977,34 @@ def test_cli_case_run_defaults_parallelism_when_omitted(tmp_path, monkeypatch):
     assert captured["parallelism"] == 1
 
 
+def test_cli_case_run_parallelism_zero_not_swallowed(tmp_path, monkeypatch):
+    # goal.yaml has parallelism: 0 -> run_cases receives 0 (NOT 1). 0 is falsy; the old
+    # `int(... or 1)` bug swallowed it as 1. The fix treats None as default, 0 as 0.
+    from loop_iter.cli import main
+    from loop_iter.state import RunPaths, init_state, load_state
+    repo = _repo(tmp_path)
+    ev = tmp_path / "eval"; ev.mkdir()
+    (ev / "goal.yaml").write_text("threshold: 0.8\nmax_rounds: 3\nweights: {gates: 1.0}\nregression: block\nparallelism: 0\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
+    (ev / "gates.py").write_text("GATES = {}")
+    (ev / "rubric.md").write_text("x")
+    rp = RunPaths(base=str(repo), run_id="r1"); init_state(rp, "g", 3)
+    import loop_iter.state as stmod
+    st = stmod.load_state(rp); st["phase"] = "eval"; st["round"] = 1; stmod.write_state(rp, st)
+    captured = {}
+    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights,
+                        run_case_fn, judge_case_fn=None, llm_call=None, parallelism=1):
+        captured["parallelism"] = parallelism
+        return {"cases": [], "composite": 0.9, "gate_pass_rates": {}, "judge_means": {}}
+    import loop_iter.case_runner as cr
+    monkeypatch.setattr(cr, "run_cases", fake_run_cases)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main(["case-run", "--eval", str(ev), "--worktree", str(repo),
+              "--run-id", "r1", "--base", str(repo), "--round", "1"])
+    assert captured["parallelism"] == 0
+
+
 def test_cli_baseline_threads_parallelism_from_goal(tmp_path, monkeypatch):
     from loop_iter.cli import main
     from loop_iter.state import RunPaths, load_state

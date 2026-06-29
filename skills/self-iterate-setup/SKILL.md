@@ -118,10 +118,10 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
   dim), `agent:` (from the adapter section), `harness:` (only files that reach the agent),
   `quality_tolerance: 0.5`, `quality_target` (optional float — enables the quality-judge auxiliary target),
   `parallelism` (optional, default `1`).
-- `parallelism` (optional, default `1`) — max concurrent cases per round. Raise it to speed up
-  large case sets. Safe out-of-the-box for `claude-p`/`command`/`local-service` (each case is an
-  independent subprocess / HTTP call). For `python-import` and custom `adapter.py` it is also safe
-  when the entry shim builds fresh per-call state (e.g. `asyncio.run` per call, which is
+- `parallelism` — max concurrent cases per round. Raise it to speed up large case sets.
+  Safe out-of-the-box for `claude-p`/`command`/`local-service` (each case is an independent
+  subprocess / HTTP call). For `python-import` and custom `adapter.py` it is also safe when
+  the entry shim builds fresh per-call state (e.g. `asyncio.run` per call, which is
   thread-local) — run `smoke` with `parallelism` set to confirm before relying on it.
 - `cases.json` — non-empty list of `{id, query, expected?}` (3-6 cases probing the goal).
 - `gates.py` — `GATES = {name: fn}` where `fn(result, case) -> {"passed": bool}`, reading
