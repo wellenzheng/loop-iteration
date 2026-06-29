@@ -72,7 +72,7 @@ In your agent's repo, run `/self-iterate setup` — it proposes the eval spec fo
 hand-write it:
 ```
 .self-iterate/<goal>/
-  goal.yaml     # threshold, weights, regression, optional agent:/harness: overrides
+  goal.yaml     # threshold, weights, regression, parallelism, optional agent:/harness: overrides
   cases.json    # your QA set
   gates.py      # your programmatic gates (GATES = {name: fn})
   rubric.md     # your LLM-rubric dims

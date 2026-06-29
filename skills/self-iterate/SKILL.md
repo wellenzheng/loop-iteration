@@ -64,6 +64,10 @@ the browser doesn't auto-open.
    a. **Stage + maker.** `apply-variant` for a worktree, then dispatch the `harness-rewriter` agent on the worktree (round 1: "cold start — sharpen the baseline harness to satisfy the gates"; later rounds: pass the failing gates + weak dims from the previous `case-run`). When `quality_target` is set, also pass the previous round's `maker_feedback` + weak quality dims (read from `.self-iterate/runs/<run_id>/quality.json`).
    b. **Snapshot + advance.** `"$PY" <plugin>/scripts/loop_iter/cli.py snapshot --eval .self-iterate/<goal> --worktree <worktree> --dest .self-iterate/runs/<run_id>/variants/round_<N> --run-id <run_id>`. Snapshots the variant and advances `maker -> eval`.
    c. **Eval + advance.** `"$PY" <plugin>/scripts/loop_iter/cli.py case-run --eval .self-iterate/<goal> --worktree <worktree> --run-id <run_id> --round <N>`. Runs cases + judge, writes this round into `scores.json`, advances `eval -> goalcheck`.
+      *(If `goal.yaml` sets `parallelism: N>1`, the per-case pipeline runs N-wide on a thread pool —
+      programmatic concurrency, not agent-decided. Safe out-of-the-box for
+      `claude-p`/`command`/`local-service`; for `python-import`/custom it is safe when the shim builds
+      fresh per-call state — run `smoke` with it set to confirm.)*
    d. **Goal-check + advance.** `"$PY" <plugin>/scripts/loop_iter/cli.py goal-check --eval .self-iterate/<goal> --run-id <run_id>`. Computes the verdict and advances: `met` or `round >= max_rounds` -> `phase=done`; otherwise -> `phase=maker`, `round++`.
 4. **Report** (at `done`): `"$PY" <plugin>/scripts/loop_iter/cli.py report --eval .self-iterate/<goal> --run-id <run_id>`. Writes `winner.diff` + `report.md`. Surface the best round + whether `met`.
 
