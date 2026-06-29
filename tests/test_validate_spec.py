@@ -3,9 +3,13 @@ from pathlib import Path
 from loop_iter.validate_spec import validate_spec
 
 
-def _write_valid_spec(d: Path):
-    (d / "goal.yaml").write_text(
-        "threshold: 0.85\nmax_rounds: 3\nweights: {gates: 2.0, conciseness: 1.0}\nregression: block\n")
+def _write_valid_spec(d: Path, parallelism=None, agent_type=None):
+    goal = "threshold: 0.85\nmax_rounds: 3\nweights: {gates: 2.0, conciseness: 1.0}\nregression: block\n"
+    if parallelism is not None:
+        goal += f"parallelism: {parallelism}\n"
+    if agent_type is not None:
+        goal += f"agent:\n  type: {agent_type}\n"
+    (d / "goal.yaml").write_text(goal)
     (d / "cases.json").write_text('[{"id":"c1","query":"hi","expected":"hi"}]')
     (d / "gates.py").write_text(
         "def g(result, case):\n    return {'passed': True}\nGATES = {'g': g}\n")
@@ -261,3 +265,35 @@ def test_quality_target_range_0_10(tmp_path):
     v = validate_spec(str(d))
     assert v["valid"] is False
     assert any("0-10" in p for p in v["problems"])
+
+
+def test_validate_spec_rejects_non_positive_parallelism(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d, parallelism=0)
+    v = validate_spec(str(d))
+    assert not v["valid"]
+    assert any("parallelism must be a positive int" in p for p in v["problems"])
+
+
+def test_validate_spec_warns_parallelism_with_python_import(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d, parallelism=4, agent_type="python-import")
+    v = validate_spec(str(d))
+    assert v["valid"]   # warning, not a problem
+    assert any("python-import" in w and "thread-safe" in w for w in v["warnings"])
+
+
+def test_validate_spec_accepts_omitted_parallelism(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d)   # no parallelism key
+    v = validate_spec(str(d))
+    assert v["valid"]
+    assert not any("parallelism" in w for w in v["warnings"])
+
+
+def test_validate_spec_accepts_parallelism_with_subprocess_adapter(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d, parallelism=4, agent_type="claude-p")
+    v = validate_spec(str(d))
+    assert v["valid"]
+    assert not any("parallelism" in w for w in v["warnings"])
