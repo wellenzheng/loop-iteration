@@ -93,3 +93,58 @@ def test_run_cases_stops_service_even_on_exception():
         assert svc.stopped == 1
     finally:
         os.unlink(gates_py.name)
+
+
+def test_run_cases_parallel_preserves_order_and_runs_concurrently(tmp_path):
+    import threading, time
+    state = {"inflight": 0, "maxinflight": 0}
+    lock = threading.Lock()
+
+    def rc(case, worktree):
+        with lock:
+            state["inflight"] += 1
+            state["maxinflight"] = max(state["maxinflight"], state["inflight"])
+        time.sleep(0.05)  # releases the GIL -> real overlap is possible
+        with lock:
+            state["inflight"] -= 1
+        return {"case_id": case["id"], "output": "OK", "trace": {}, "error": None}
+
+    cases = [{"id": f"c{i}", "query": "q", "expected": None} for i in range(6)]
+    out = run_cases(
+        cases=cases, worktree="/tmp/x",
+        gates_path=_gate_mod(tmp_path), rubric_md="x",
+        weights={"gates": 1.0},
+        run_case_fn=rc, judge_case_fn=lambda *a, **k: [],
+        llm_call=None, parallelism=4,
+    )
+    # results come back in original case order
+    assert [c["case_id"] for c in out["cases"]] == [c["id"] for c in cases]
+    # cases actually overlapped (not a serialized pool)
+    assert state["maxinflight"] > 1
+    assert out["composite"] == 1.0
+
+
+def test_run_cases_serial_by_default_never_overlaps(tmp_path):
+    import threading, time
+    state = {"inflight": 0, "maxinflight": 0}
+    lock = threading.Lock()
+
+    def rc(case, worktree):
+        with lock:
+            state["inflight"] += 1
+            state["maxinflight"] = max(state["maxinflight"], state["inflight"])
+        time.sleep(0.02)
+        with lock:
+            state["inflight"] -= 1
+        return {"case_id": case["id"], "output": "OK", "trace": {}, "error": None}
+
+    cases = [{"id": f"c{i}", "query": "q", "expected": None} for i in range(4)]
+    out = run_cases(
+        cases=cases, worktree="/tmp/x",
+        gates_path=_gate_mod(tmp_path), rubric_md="x",
+        weights={"gates": 1.0},
+        run_case_fn=rc, judge_case_fn=lambda *a, **k: [],
+        llm_call=None,  # parallelism omitted -> serial, on the calling thread
+    )
+    assert state["maxinflight"] == 1
+    assert [c["case_id"] for c in out["cases"]] == [c["id"] for c in cases]
