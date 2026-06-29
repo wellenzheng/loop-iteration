@@ -13,6 +13,11 @@ target.
 Investigate-first: read the user's repo to infer + propose every config value; the user confirms or
 tweaks. Reserve open-ended questions for the GOAL (user intent) and WHICH agent when several exist.
 
+Goal comes from the user, always. If the user invoked `/self-iterate-setup` without stating a goal,
+your FIRST action is to ask them for one. Do NOT look at existing `.self-iterate/<goal>/` dirs and
+offer to reuse one as a shortcut — existing dirs are only a collision check (step 3) after the user
+has stated a new goal.
+
 ## Adapter wiring
 
 Pick the adapter by the agent's kind (step 2). Each entry is the complete `agent:` block for
@@ -127,12 +132,21 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
 
 1. **Read the repo.** Skim the user's repo for the agent's harness + entry: harness candidates
    (CLAUDE.md, AGENTS.md, .claude/skills, skills/, src/prompts), entry signals (pyproject scripts,
-   a CLI, an importable module, a local HTTP service / FastAPI route). List the agents if several;
-   note an existing `.self-iterate/<goal>/` (ask reuse/overwrite).
+   a CLI, an importable module, a local HTTP service / FastAPI route). List the agents if several.
+   Also list any existing `.self-iterate/<goal>/` dirs for reference — but do NOT default to reusing
+   them (see step 3).
 2. **Confirm the agent type.** Match the agent to an adapter in the table above. CONFIRM the adapter
    choice + the `agent:` config with the user.
-3. **Ask the goal.** Ask the optimization target (user intent — not inferable). Confirm WHICH agent
-   if several (don't default). Propose a kebab-case `<goal>` dir name; CONFIRM.
+3. **Ask the goal.** The optimization target is user intent — NOT inferable, and NOT to be defaulted
+   from an existing `.self-iterate/<goal>/`. If the user did NOT state a goal in their
+   `/self-iterate-setup` invocation, you MUST ask them for a new goal before doing anything else
+   (open question: "What optimization goal do you want to self-iterate toward?"). Only proceed once
+   the user states one. Confirm WHICH agent if several (don't default). Propose a kebab-case `<goal>`
+   dir name; CONFIRM.
+   - **Reuse/overwrite is a collision check, not a default.** Only after the user has stated a NEW
+     goal, if its proposed `<goal>` dir name already exists under `.self-iterate/`, ask whether to
+     overwrite it or pick a different name. Never offer "reuse an existing goal" as the starting
+     point.
 4. **Ask the eval criteria (rubric).** Propose + CONFIRM the gates (programmatic, verifiable,
    reading `result["output"]`) and the judge dims (LLM 0-10 on the output). These become `gates.py`
    + `rubric.md`.
@@ -179,6 +193,9 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
 ## Rules
 - Produce ALL required files — none may be missing.
 - Investigate-first: infer + propose every config from the user's code; the user confirms/tweaks.
+- The goal MUST come from the user. If they didn't state one, ASK before doing anything else —
+  never default to / offer to reuse an existing `.self-iterate/<goal>/`. Existing dirs are only a
+  collision check once a new goal is stated.
 - PROPOSE then CONFIRM. Never write without the user confirming the goal + each file.
 - Gates must be programmatic + verifiable (a boolean), not LLM vibes.
 - Don't hardcode eval answers into the proposed harness/gates.
