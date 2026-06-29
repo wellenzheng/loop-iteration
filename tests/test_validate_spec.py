@@ -275,6 +275,14 @@ def test_validate_spec_rejects_non_positive_parallelism(tmp_path):
     assert any("parallelism must be a positive int" in p for p in v["problems"])
 
 
+def test_validate_spec_rejects_bool_parallelism(tmp_path):
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d, parallelism=True)
+    v = validate_spec(str(d))
+    assert not v["valid"]
+    assert any("parallelism must be a positive int" in p for p in v["problems"])
+
+
 def test_validate_spec_warns_parallelism_with_python_import(tmp_path):
     d = tmp_path / "g"; d.mkdir()
     _write_valid_spec(d, parallelism=4, agent_type="python-import")

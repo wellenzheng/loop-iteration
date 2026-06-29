@@ -89,10 +89,9 @@ def validate_spec(eval_dir: str) -> dict:
         elif atype == "python-import" and par > 1:
             warnings.append("goal.yaml: parallelism>1 with agent.type=python-import runs cases "
                             "concurrently in-process; this is thread-safe only if the entry shim "
-                            "builds fresh per-call state (the maas shim uses asyncio.run per call, "
-                            "which is thread-local). Run `smoke` with parallelism set before relying "
-                            "on it — a module-level async client cached across calls would break under "
-                            "concurrency")
+                            "builds fresh per-call state (e.g. asyncio.run per call, which is "
+                            "thread-local) and does not cache a module-level async client across "
+                            "calls. Run `smoke` with parallelism set before relying on it")
 
     # cases.json
     cases_path = d / "cases.json"
