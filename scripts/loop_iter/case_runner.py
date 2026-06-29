@@ -42,7 +42,7 @@ def run_cases(cases: list[dict], worktree: str,
             "error": result.get("error"),
         }
 
-    case_scores: list[dict] = []
+    case_scores: list[dict]
     if service is not None:
         service.start(worktree)
     try:
