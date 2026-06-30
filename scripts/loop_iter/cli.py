@@ -19,6 +19,16 @@ def _rubric_path(ev: Path) -> Path:
     return r if r.exists() else (ev / "judge.md")
 
 
+def _parallelism(goal: dict) -> int:
+    """parallelism from goal.yaml. Absent/None -> 1 (serial). Otherwise int-coerce the
+    present value. Matches validate_spec's semantics (None -> default; present -> int): a
+    valid spec only ever has parallelism absent or a positive int, so reaching here with 0
+    or a float means a hand-edited spec that skipped `validate-spec` — 0 -> serial (not >1),
+    4.0 -> 4. A non-numeric string raises ValueError (clear traceback, same as today)."""
+    par = goal.get("parallelism")
+    return int(par) if par is not None else 1
+
+
 def _apply_variant(args):
     from loop_iter.adapter import apply_variant
     from loop_iter.adapter_generic import resolve_harness
@@ -68,7 +78,8 @@ def _case_run(args):
     from loop_iter.llm_client import chat as llm_call
     out = run_cases(cases, args.worktree, str(ev / "gates.py"),
                     _rubric_path(ev).read_text(), goal["weights"],
-                    run_case_fn=rc, llm_call=llm_call)
+                    run_case_fn=rc, llm_call=llm_call,
+                    parallelism=_parallelism(goal))
     out["round"] = args.round
     # harness-quality guardrail (opt-in via quality.md); score the VARIANT's harness in the worktree
     out["quality"], out["quality_dims"] = _compute_quality(
@@ -198,7 +209,8 @@ def _baseline(args):
     rc = build_run_case(args.eval, goal.get("agent", {}), harness)
     out = run_cases(cases, args.base, str(ev / "gates.py"),
                     _rubric_path(ev).read_text(), goal["weights"],
-                    run_case_fn=rc, llm_call=llm_call)
+                    run_case_fn=rc, llm_call=llm_call,
+                    parallelism=_parallelism(goal))
     out["quality"], out["quality_dims"] = _compute_quality(
         ev, args.base, args.base, cases, llm_call, skip_llm=bool(goal.get("quality_target")))
     rp.baseline_file.write_text(json.dumps(out, indent=2, ensure_ascii=False))

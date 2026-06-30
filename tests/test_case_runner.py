@@ -93,3 +93,84 @@ def test_run_cases_stops_service_even_on_exception():
         assert svc.stopped == 1
     finally:
         os.unlink(gates_py.name)
+
+
+def test_run_cases_parallel_preserves_order_and_runs_concurrently(tmp_path):
+    import threading, time
+    state = {"inflight": 0, "maxinflight": 0}
+    lock = threading.Lock()
+
+    def rc(case, worktree):
+        with lock:
+            state["inflight"] += 1
+            state["maxinflight"] = max(state["maxinflight"], state["inflight"])
+        time.sleep(0.05)  # releases the GIL -> real overlap is possible
+        with lock:
+            state["inflight"] -= 1
+        return {"case_id": case["id"], "output": "OK", "trace": {}, "error": None}
+
+    cases = [{"id": f"c{i}", "query": "q", "expected": None} for i in range(6)]
+    out = run_cases(
+        cases=cases, worktree="/tmp/x",
+        gates_path=_gate_mod(tmp_path), rubric_md="x",
+        weights={"gates": 1.0},
+        run_case_fn=rc, judge_case_fn=lambda *a, **k: [],
+        llm_call=None, parallelism=4,
+    )
+    # results come back in original case order
+    assert [c["case_id"] for c in out["cases"]] == [c["id"] for c in cases]
+    # cases actually overlapped (not a serialized pool)
+    assert state["maxinflight"] > 1
+    assert out["composite"] == 1.0
+
+
+def test_run_cases_serial_by_default_never_overlaps(tmp_path):
+    import threading, time
+    state = {"inflight": 0, "maxinflight": 0}
+    lock = threading.Lock()
+
+    def rc(case, worktree):
+        with lock:
+            state["inflight"] += 1
+            state["maxinflight"] = max(state["maxinflight"], state["inflight"])
+        time.sleep(0.02)
+        with lock:
+            state["inflight"] -= 1
+        return {"case_id": case["id"], "output": "OK", "trace": {}, "error": None}
+
+    cases = [{"id": f"c{i}", "query": "q", "expected": None} for i in range(4)]
+    # parallelism omitted -> serial, on the calling thread
+    out = run_cases(
+        cases=cases, worktree="/tmp/x",
+        gates_path=_gate_mod(tmp_path), rubric_md="x",
+        weights={"gates": 1.0},
+        run_case_fn=rc, judge_case_fn=lambda *a, **k: [],
+        llm_call=None,
+    )
+    assert state["maxinflight"] == 1
+    assert [c["case_id"] for c in out["cases"]] == [c["id"] for c in cases]
+
+
+def test_run_cases_parallel_stops_service_even_on_exception():
+    from loop_iter.case_runner import run_cases
+    from loop_iter.adapter_generic import ServiceAdapter
+
+    class BoomService(ServiceAdapter):
+        def __init__(self): super().__init__({}); self.stopped = 0
+        def start(self, worktree): pass
+        def run_case(self, case, worktree): raise RuntimeError("boom")
+        def stop(self): self.stopped += 1
+
+    import tempfile, os
+    gates_py = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False); gates_py.write("GATES = {}\n"); gates_py.close()
+    try:
+        svc = BoomService()
+        import pytest
+        with pytest.raises(RuntimeError):
+            run_cases([{"id": "c1", "query": "q"}, {"id": "c2", "query": "q"}], "/tmp/wt",
+                      gates_py.name, "j", {"gates": 1.0},
+                      run_case_fn=svc, judge_case_fn=lambda *a, **k: [],
+                      parallelism=2)
+        assert svc.stopped == 1
+    finally:
+        os.unlink(gates_py.name)

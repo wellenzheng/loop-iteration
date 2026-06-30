@@ -82,6 +82,17 @@ def validate_spec(eval_dir: str) -> dict:
             problems.append("goal.yaml: quality_target must be in 0-10")
         # quality-judge uses a built-in industry rubric; quality.md is optional supplementary
 
+    par = goal.get("parallelism")
+    if par is not None:
+        if isinstance(par, bool) or not isinstance(par, int) or par < 1:
+            problems.append("goal.yaml: parallelism must be a positive int (>=1)")
+        elif atype == "python-import" and par > 1:
+            warnings.append("goal.yaml: parallelism>1 with agent.type=python-import runs cases "
+                            "concurrently in-process; this is thread-safe only if the entry shim "
+                            "builds fresh per-call state (e.g. asyncio.run per call, which is "
+                            "thread-local) and does not cache a module-level async client across "
+                            "calls. Run `smoke` with parallelism set before relying on it")
+
     # cases.json
     cases_path = d / "cases.json"
     if not cases_path.exists():
