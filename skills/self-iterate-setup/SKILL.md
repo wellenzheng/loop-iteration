@@ -123,6 +123,13 @@ Write every one of these to `.self-iterate/<goal>/` (none may be missing):
   subprocess / HTTP call). For `python-import` and custom `adapter.py` it is also safe when
   the entry shim builds fresh per-call state (e.g. `asyncio.run` per call, which is
   thread-local) — run `smoke` with `parallelism` set to confirm before relying on it.
+- `weights.latency` (optional, in the `weights:` dict) — opt-in latency optimization target.
+  Relative to baseline: `latency_score = baseline_mean_latency / round_mean_latency`, UNCAPPED
+  (composite may exceed 1.0 when the round is faster). The scored signal is per-case `elapsed_ms`
+  (wall-clock of `run_case` only, universal across adapter types). Keep the weight small (e.g. 0.1);
+  gates+judge contain do-less-to-go-fast gaming. Adapters may also fill `trace.timings`
+  (`[{"phase": "llm_call"|"tool_call:<name>", "ms": float, "count": int}]`) for maker attribution;
+  absent timings degrade to per-case delta feedback.
 - `cases.json` — non-empty list of `{id, query, expected?}` (3-6 cases probing the goal).
 - `gates.py` — `GATES = {name: fn}` where `fn(result, case) -> {"passed": bool}`, reading
   `result["output"]`. Programmatic + verifiable.
