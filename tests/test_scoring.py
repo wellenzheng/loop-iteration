@@ -1,4 +1,11 @@
-from loop_iter.scoring import gate_pass_rates, judge_means, composite, regressed_gates, goal_met
+from loop_iter.scoring import (
+    gate_pass_rates,
+    judge_means,
+    composite,
+    regressed_gates,
+    goal_met,
+    compute_latency_score,
+)
 
 
 def _cs(gates, judge):
@@ -63,3 +70,37 @@ def test_goal_not_met_when_over_max_rounds():
     v = goal_met(round_idx=4, case_scores=cases, weights={"gates": 1.0, "tone": 1.0},
                  threshold=0.8, max_rounds=3, best_gate_rates={"exact": 1.0})
     assert v["met"] is False
+
+
+def test_composite_with_extra_latency_uncapped():
+    # one case, gate passes, no judge dims; latency extra = 2.0 (round 2x faster than baseline)
+    cases = [{"gates": [{"gate": "g", "passed": True}], "judge": []}]
+    # gates_component = 1.0; weights gates=0.5, latency=0.5
+    # acc = 0.5*1.0 + 0.5*2.0 = 1.5; w_total = 1.0 -> 1.5
+    assert composite(cases, {"gates": 0.5, "latency": 0.5}, extra={"latency": 2.0}) == 1.5
+
+
+def test_composite_without_extra_unchanged():
+    cases = [{"gates": [{"gate": "g", "passed": True}], "judge": []}]
+    # no extra -> behaves as today: acc = 0.5*1.0, w_total = 0.5 -> 1.0
+    assert composite(cases, {"gates": 0.5, "latency": 0.5}) == 1.0
+
+
+def test_composite_extra_ignored_when_weight_absent():
+    cases = [{"gates": [{"gate": "g", "passed": True}], "judge": []}]
+    # latency in extra but NOT in weights -> contributes 0 (weight 0), no effect
+    assert composite(cases, {"gates": 1.0}, extra={"latency": 2.0}) == 1.0
+
+
+def test_compute_latency_score_normal_ratio():
+    assert compute_latency_score(100.0, 200.0) == 0.5   # round 2x slower
+    assert compute_latency_score(200.0, 100.0) == 2.0   # round 2x faster (uncapped)
+
+
+def test_compute_latency_score_baseline_missing():
+    assert compute_latency_score(100.0, None) == 1.0
+    assert compute_latency_score(100.0, 0.0) == 1.0
+
+
+def test_compute_latency_score_round_zero():
+    assert compute_latency_score(0.0, 200.0) == 1.0   # avoid divide-by-zero
