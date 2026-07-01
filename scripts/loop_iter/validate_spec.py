@@ -55,6 +55,13 @@ def validate_spec(eval_dir: str) -> dict:
     w = goal.get("weights")
     if not isinstance(w, dict) or not w:
         problems.append("goal.yaml: weights must be a non-empty dict")
+    if isinstance(w, dict) and "latency" in w:
+        lw = w["latency"]
+        if isinstance(lw, bool) or not isinstance(lw, (int, float)) or lw < 0:
+            problems.append("goal.yaml: weights.latency must be a non-negative number")
+        else:
+            warnings.append("goal.yaml: weights.latency is uncapped — composite may exceed 1.0; "
+                            "rely on gates+judge to contain do-less-to-go-fast gaming, keep it small")
     agent = goal.get("agent") or {}
     atype = agent.get("type")
     if atype is not None and atype not in _VALID_AGENT_TYPES:
