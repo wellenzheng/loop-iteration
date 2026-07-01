@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 def _aggregate_phases(cases: list[dict]) -> dict[str, dict]:
-    """Sum ms and count per phase across cases. Returns {phase: {"ms": float, "count": int}}."""
+    """Sum ms and count per phase across cases. Returns {phase: {"ms": float, "count": int}}.
+    Malformed timing entries (non-numeric ms/count, missing phase) are skipped — never raise."""
     agg: dict[str, dict] = {}
     for c in cases:
         for t in (c.get("trace") or {}).get("timings", []) or []:
             p = t.get("phase")
             if not p:
                 continue
+            try:
+                ms = float(t.get("ms", 0.0))
+                count = int(t.get("count", 0))
+            except (TypeError, ValueError):
+                continue
             d = agg.setdefault(p, {"ms": 0.0, "count": 0})
-            d["ms"] += float(t.get("ms", 0.0))
-            d["count"] += int(t.get("count", 0))
+            d["ms"] += ms
+            d["count"] += count
     return agg
 
 
@@ -42,15 +48,15 @@ def latency_feedback(round_cases: list[dict], baseline_cases: list[dict] | None 
     rows = []
     for c in round_cases:
         cid = c.get("case_id")
-        re = float(c.get("elapsed_ms", 0.0))
-        be = base_elapsed.get(cid)
-        rows.append((cid, re, be, (re - be) if be is not None else None))
+        r_ms = float(c.get("elapsed_ms", 0.0))
+        b_ms = base_elapsed.get(cid)
+        rows.append((cid, r_ms, b_ms, (r_ms - b_ms) if b_ms is not None else None))
     rows.sort(key=lambda x: (x[3] if x[3] is not None else float("-inf")), reverse=True)
     lines = ["Latency by case (round vs baseline):"]
-    for cid, re, be, d in rows[:3]:
+    for cid, r_ms, b_ms, d in rows[:3]:
         if d is not None:
             sign = "+" if d >= 0 else ""
-            lines.append(f"  {cid}: {re:.0f}ms vs baseline {be:.0f}ms ({sign}{d:.0f}ms)")
+            lines.append(f"  {cid}: {r_ms:.0f}ms vs baseline {b_ms:.0f}ms ({sign}{d:.0f}ms)")
         else:
-            lines.append(f"  {cid}: {re:.0f}ms (no baseline)")
+            lines.append(f"  {cid}: {r_ms:.0f}ms (no baseline)")
     return "\n".join(lines)

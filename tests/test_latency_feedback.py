@@ -41,8 +41,20 @@ def test_feedback_baseline_missing_reports_round_only():
     ]
     out = latency_feedback(round_cases, None)
     assert "llm_call" in out
-    assert "500" in out
+    assert "500ms" in out
 
 
 def test_feedback_empty_round_returns_empty():
     assert latency_feedback([], None) == ""
+
+
+def test_feedback_skips_malformed_timing_entry():
+    round_cases = [
+        {"case_id": "c1", "elapsed_ms": 500.0, "trace": {"timings": [
+            {"phase": "llm_call", "ms": "fast", "count": 1},     # malformed -> skipped
+            {"phase": "tool_call:kb_search", "ms": 400.0, "count": 1},
+        ]}},
+    ]
+    out = latency_feedback(round_cases, None)
+    assert "tool_call:kb_search" in out   # the well-formed phase still reported
+    assert "llm_call" not in out          # the malformed phase was skipped
