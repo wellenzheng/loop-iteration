@@ -97,10 +97,12 @@ def test_compute_latency_score_normal_ratio():
     assert compute_latency_score(200.0, 100.0) == 2.0   # round 2x faster (uncapped)
 
 
-def test_compute_latency_score_baseline_missing():
+def test_compute_latency_score_round_missing_returns_neutral():
+    # signature is (baseline, round); round=None/0 -> neutral 1.0
     assert compute_latency_score(100.0, None) == 1.0
     assert compute_latency_score(100.0, 0.0) == 1.0
 
 
-def test_compute_latency_score_round_zero():
-    assert compute_latency_score(0.0, 200.0) == 1.0   # avoid divide-by-zero
+def test_compute_latency_score_baseline_missing_returns_neutral():
+    # signature is (baseline, round); baseline=0 (missing/old baseline) -> neutral 1.0
+    assert compute_latency_score(0.0, 200.0) == 1.0
