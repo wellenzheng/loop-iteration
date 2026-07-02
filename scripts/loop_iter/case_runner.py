@@ -21,7 +21,7 @@ def run_cases(cases: list[dict], worktree: str,
     Safe when the per-case run_case call holds no shared mutable state across calls:
     claude-p/command (subprocess per call), local-service (transient httpx), and
     llm_client.chat + run_gates are all thread-safe. python-import is safe when the shim
-    builds fresh per-call state (the maas shim's asyncio.run per call is thread-local);
+    builds fresh per-call state (e.g. an asyncio.run-per-call shim with a thread-local loop);
     custom adapter.py is safe when start()'s module globals are only read by run_case and
     run_case itself is thread-safe. validate_spec warns for python-import>1; smoke-test it.
     Results are returned in original case order (executor.map preserves submission order).
