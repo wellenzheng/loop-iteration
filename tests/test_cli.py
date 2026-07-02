@@ -1113,3 +1113,133 @@ def test_cli_import_cases_unsupported_type_errors(tmp_path):
         assert False, "should error"
     except SystemExit as e:
         assert "Unsupported" in str(e) or ".txt" in str(e)
+
+
+def test_case_run_overlays_latency_when_weight_set(tmp_path, monkeypatch):
+    import loop_iter.cli as cli
+    import loop_iter.case_runner as cr
+    from loop_iter.state import RunPaths
+    import json
+
+    base = tmp_path
+    ev = base / "ev"; ev.mkdir()
+    (ev / "goal.yaml").write_text(
+        "threshold: 0.85\nmax_rounds: 4\nweights: {gates: 0.5, latency: 0.5}\nagent: {type: claude-p}\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (ev / "rubric.md").write_text("rubric")
+    (ev / "gates.py").write_text("GATES = {}\n")
+
+    rp = RunPaths(base=str(base), run_id="r1")
+    rp.run_dir.mkdir(parents=True, exist_ok=True)
+    rp.baseline_file.write_text(json.dumps({"round_latency_ms": 200.0, "cases": []}))
+    rp.state_file.write_text(json.dumps({"phase": "eval", "round": 1, "max_rounds": 4,
+                                         "run_id": "r1", "goal": "g", "met": False,
+                                         "baseline_composite": 1.0, "best": {"round": None}}))
+
+    captured = {}
+    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights,
+                       run_case_fn, judge_case_fn=None, llm_call=None, parallelism=1):
+        return {"cases": [{"case_id": "c1", "output": "OK", "trace": {},
+                           "gates": [{"gate": "g", "passed": True}], "judge": [],
+                           "error": None, "elapsed_ms": 100.0}],
+                "composite": 1.0, "gate_pass_rates": {"g": 1.0}, "judge_means": {},
+                "round_latency_ms": 100.0}
+    monkeypatch.setattr(cr, "run_cases", fake_run_cases)
+    monkeypatch.setattr(cli, "_compute_quality", lambda *a, **k: (0.0, []), raising=False)
+    monkeypatch.setattr(cli, "append_round", lambda rp, out: captured.update(out), raising=False)
+    monkeypatch.setattr(cli, "advance_phase", lambda *a, **k: None, raising=False)
+
+    import argparse
+    args = argparse.Namespace(eval=str(ev), worktree=str(tmp_path / "wt"),
+                              run_id="r1", base=str(base), round=1)
+    cli._case_run(args)
+
+    assert captured["latency_score"] == 2.0          # baseline 200 / round 100
+    assert captured["baseline_latency_ms"] == 200.0
+    # composite overlaid: gates_component=1.0, latency=2.0, weights 0.5/0.5 -> 1.5
+    assert captured["composite"] == 1.5
+    assert "latency_feedback" in captured
+
+
+def test_case_run_no_latency_when_weight_absent(tmp_path, monkeypatch):
+    import loop_iter.cli as cli
+    import loop_iter.case_runner as cr
+    from loop_iter.state import RunPaths
+    import json
+
+    base = tmp_path
+    ev = base / "ev"; ev.mkdir()
+    (ev / "goal.yaml").write_text(
+        "threshold: 0.85\nmax_rounds: 4\nweights: {gates: 1.0}\nagent: {type: claude-p}\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (ev / "rubric.md").write_text("rubric")
+    (ev / "gates.py").write_text("GATES = {}\n")
+
+    rp = RunPaths(base=str(base), run_id="r1")
+    rp.run_dir.mkdir(parents=True, exist_ok=True)
+    rp.state_file.write_text(json.dumps({"phase": "eval", "round": 1, "max_rounds": 4,
+                                         "run_id": "r1", "goal": "g", "met": False,
+                                         "baseline_composite": 1.0, "best": {"round": None}}))
+
+    captured = {}
+    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights,
+                       run_case_fn, judge_case_fn=None, llm_call=None, parallelism=1):
+        return {"cases": [{"case_id": "c1", "output": "OK", "trace": {},
+                           "gates": [{"gate": "g", "passed": True}], "judge": [],
+                           "error": None, "elapsed_ms": 100.0}],
+                "composite": 0.9, "gate_pass_rates": {"g": 1.0}, "judge_means": {},
+                "round_latency_ms": 100.0}
+    monkeypatch.setattr(cr, "run_cases", fake_run_cases)
+    monkeypatch.setattr(cli, "_compute_quality", lambda *a, **k: (0.0, []), raising=False)
+    monkeypatch.setattr(cli, "append_round", lambda rp, out: captured.update(out), raising=False)
+    monkeypatch.setattr(cli, "advance_phase", lambda *a, **k: None, raising=False)
+
+    import argparse
+    args = argparse.Namespace(eval=str(ev), worktree=str(tmp_path / "wt"),
+                              run_id="r1", base=str(base), round=1)
+    cli._case_run(args)
+
+    assert captured["composite"] == 0.9              # unchanged (no overlay)
+    assert "latency_score" not in captured
+    assert "latency_feedback" not in captured
+
+
+def test_baseline_stores_round_latency_and_neutral_score(tmp_path, monkeypatch):
+    import loop_iter.cli as cli
+    import loop_iter.case_runner as cr
+    from loop_iter.state import RunPaths
+    import json
+
+    base = tmp_path
+    ev = base / "ev"; ev.mkdir()
+    (ev / "goal.yaml").write_text(
+        "threshold: 0.85\nmax_rounds: 4\nweights: {gates: 0.5, latency: 0.5}\nagent: {type: claude-p}\n")
+    (ev / "cases.json").write_text('[{"id":"c1","query":"q"}]')
+    (ev / "rubric.md").write_text("rubric")
+    (ev / "gates.py").write_text("GATES = {}\n")
+
+    rp = RunPaths(base=str(base), run_id="r1")
+    rp.run_dir.mkdir(parents=True, exist_ok=True)
+    rp.state_file.write_text(json.dumps({"phase": "baseline", "round": 0, "max_rounds": 4,
+                                         "run_id": "r1", "goal": "g", "met": False,
+                                         "baseline_composite": None, "best": {"round": None}}))
+
+    def fake_run_cases(cases, worktree, gates_path, rubric_md, weights,
+                       run_case_fn, judge_case_fn=None, llm_call=None, parallelism=1):
+        return {"cases": [{"case_id": "c1", "output": "OK", "trace": {},
+                           "gates": [{"gate": "g", "passed": True}], "judge": [],
+                           "error": None, "elapsed_ms": 100.0}],
+                "composite": 1.0, "gate_pass_rates": {"g": 1.0}, "judge_means": {},
+                "round_latency_ms": 100.0}
+    monkeypatch.setattr(cr, "run_cases", fake_run_cases)
+    monkeypatch.setattr(cli, "_compute_quality", lambda *a, **k: (0.0, []), raising=False)
+    monkeypatch.setattr(cli, "advance_phase", lambda *a, **k: None, raising=False)
+
+    import argparse
+    args = argparse.Namespace(eval=str(ev), run_id="r1", base=str(base))
+    cli._baseline(args)
+
+    b = json.loads(rp.baseline_file.read_text())
+    assert b["round_latency_ms"] == 100.0
+    assert b["latency_score"] == 1.0          # neutral (no prior baseline)
+    assert b["baseline_latency_ms"] is None

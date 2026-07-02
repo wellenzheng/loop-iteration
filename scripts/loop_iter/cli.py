@@ -12,6 +12,10 @@ import json
 import subprocess
 from pathlib import Path
 
+# Module-level re-export so tests can monkeypatch cli.append_round / cli.advance_phase
+# (these are otherwise lazy-imported inside the command functions below).
+from loop_iter.state import append_round, advance_phase  # noqa: E402,F401
+
 
 def _rubric_path(ev: Path) -> Path:
     """The user's output-eval rubric file. Prefers rubric.md; falls back to judge.md (legacy)."""
@@ -27,6 +31,24 @@ def _parallelism(goal: dict) -> int:
     4.0 -> 4. A non-numeric string raises ValueError (clear traceback, same as today)."""
     par = goal.get("parallelism")
     return int(par) if par is not None else 1
+
+
+def _apply_latency(out: dict, goal: dict, rp) -> dict:
+    """If weights.latency is set: compute latency_score relative to baseline, overlay it into
+    composite (uncapped, may exceed 1.0), and attach a maker-facing latency_feedback string.
+    No-op (returns out unchanged) when weights.latency is absent."""
+    weights = goal.get("weights") or {}
+    if "latency" not in weights:
+        return out
+    from loop_iter.scoring import composite as _composite, compute_latency_score
+    from loop_iter.latency_feedback import latency_feedback
+    baseline = json.loads(rp.baseline_file.read_text()) if rp.baseline_file.exists() else {}
+    baseline_latency = baseline.get("round_latency_ms")
+    out["baseline_latency_ms"] = baseline_latency
+    out["latency_score"] = compute_latency_score(baseline_latency, out.get("round_latency_ms", 0.0))
+    out["composite"] = _composite(out["cases"], weights, extra={"latency": out["latency_score"]})
+    out["latency_feedback"] = latency_feedback(out["cases"], baseline.get("cases"))
+    return out
 
 
 def _apply_variant(args):
@@ -57,7 +79,7 @@ def _snapshot(args):
 
 def _case_run(args):
     import yaml
-    from loop_iter.state import RunPaths, append_round
+    from loop_iter.state import RunPaths, load_state
     from loop_iter.case_runner import run_cases
     from loop_iter.adapter_generic import resolve_harness, build_run_case
     ev = Path(args.eval)
@@ -70,7 +92,6 @@ def _case_run(args):
     # (no inconsistent-state window where scores.json has an extra round but state didn't
     # advance) and skips the costly case evaluation entirely.
     if rp.state_file.exists():
-        from loop_iter.state import load_state, advance_phase
         st = load_state(rp)
         if st["phase"] != "eval":
             raise SystemExit(f"phase guard: case-run requires phase=eval, got {st['phase']}")
@@ -84,6 +105,7 @@ def _case_run(args):
     # harness-quality guardrail (opt-in via quality.md); score the VARIANT's harness in the worktree
     out["quality"], out["quality_dims"] = _compute_quality(
         ev, args.base, args.worktree, cases, llm_call, skip_llm=bool(goal.get("quality_target")))
+    out = _apply_latency(out, goal, rp)
     if rp.state_file.exists():
         (rp.run_dir / "quality.json").write_text(
             json.dumps({"round": args.round, "quality": out["quality"],
@@ -193,7 +215,7 @@ def _compute_quality(ev, repo_root: str, read_root: str, cases: list, llm_call, 
 
 def _baseline(args):
     import yaml
-    from loop_iter.state import RunPaths, load_state, advance_phase
+    from loop_iter.state import RunPaths, load_state
     from loop_iter.case_runner import run_cases
     from loop_iter.adapter_generic import resolve_harness, build_run_case
     from loop_iter.llm_client import chat as llm_call
@@ -213,6 +235,12 @@ def _baseline(args):
                     parallelism=_parallelism(goal))
     out["quality"], out["quality_dims"] = _compute_quality(
         ev, args.base, args.base, cases, llm_call, skip_llm=bool(goal.get("quality_target")))
+    weights = goal.get("weights") or {}
+    if "latency" in weights:
+        from loop_iter.scoring import composite as _composite
+        out["baseline_latency_ms"] = None
+        out["latency_score"] = 1.0
+        out["composite"] = _composite(out["cases"], weights, extra={"latency": 1.0})
     rp.baseline_file.write_text(json.dumps(out, indent=2, ensure_ascii=False))
     advance_phase(rp, "baseline", "maker",
                   updates={"round": 1, "baseline_composite": out["composite"],

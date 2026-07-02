@@ -1,5 +1,6 @@
 from __future__ import annotations
 import concurrent.futures
+import time
 from loop_iter.gates import load_gates, run_gates
 from loop_iter.judge import judge_case as _default_judge
 from loop_iter.scoring import composite, gate_pass_rates, judge_means
@@ -29,8 +30,10 @@ def run_cases(cases: list[dict], worktree: str,
     service = run_case_fn if isinstance(run_case_fn, ServiceAdapter) else None
 
     def _run_one(case):
+        t0 = time.perf_counter()
         result = (service.run_case(case, worktree) if service is not None
                   else run_case_fn(case, worktree))
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
         gate_results = run_gates(result, case, gates)
         judged = judge_case_fn(result, case, rubric_md, llm_call)
         return {
@@ -40,6 +43,7 @@ def run_cases(cases: list[dict], worktree: str,
             "gates": gate_results,
             "judge": judged or [],
             "error": result.get("error"),
+            "elapsed_ms": elapsed_ms,
         }
 
     case_scores: list[dict]
@@ -54,9 +58,12 @@ def run_cases(cases: list[dict], worktree: str,
     finally:
         if service is not None:
             service.stop()
+    elapsed = [c["elapsed_ms"] for c in case_scores]
+    round_latency_ms = sum(elapsed) / len(elapsed) if elapsed else 0.0
     return {
         "cases": case_scores,
         "composite": composite(case_scores, weights),
         "gate_pass_rates": gate_pass_rates(case_scores),
         "judge_means": judge_means(case_scores),
+        "round_latency_ms": round_latency_ms,
     }
