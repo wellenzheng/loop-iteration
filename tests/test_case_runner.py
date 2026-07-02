@@ -174,3 +174,55 @@ def test_run_cases_parallel_stops_service_even_on_exception():
         assert svc.stopped == 1
     finally:
         os.unlink(gates_py.name)
+
+
+def test_run_cases_records_elapsed_ms_per_case(tmp_path):
+    import time
+    def rc(case, worktree):
+        time.sleep(0.05)  # 50ms; only run_case is timed
+        return {"case_id": case["id"], "output": "OK", "trace": {}, "error": None}
+    out = run_cases(
+        cases=[{"id": "c1", "query": "q", "expected": None}], worktree="/tmp/x",
+        gates_path=_gate_mod(tmp_path), rubric_md="x", weights={"gates": 1.0},
+        run_case_fn=rc, judge_case_fn=lambda *a, **k: [], llm_call=None,
+    )
+    assert out["cases"][0]["elapsed_ms"] >= 40.0  # ~50ms, allow slack
+
+
+def test_elapsed_ms_excludes_judge_time(tmp_path):
+    import time
+    def rc(case, worktree):
+        return {"case_id": case["id"], "output": "OK", "trace": {}, "error": None}  # ~0ms
+    def slow_judge(result, case, rubric_md, llm_call):
+        time.sleep(0.1)  # 100ms in judge
+        return []
+    out = run_cases(
+        cases=[{"id": "c1", "query": "q", "expected": None}], worktree="/tmp/x",
+        gates_path=_gate_mod(tmp_path), rubric_md="x", weights={"gates": 1.0},
+        run_case_fn=rc, judge_case_fn=slow_judge, llm_call=None,
+    )
+    # if judge time were included, elapsed_ms would be >= 90ms; it must be << 90ms
+    assert out["cases"][0]["elapsed_ms"] < 50.0
+
+
+def test_round_latency_ms_is_mean_of_elapsed(tmp_path):
+    def rc(case, worktree):
+        return {"case_id": case["id"], "output": "OK", "trace": {}, "error": None}
+    cases = [{"id": "c1", "query": "q"}, {"id": "c2", "query": "q"}]
+    out = run_cases(
+        cases=cases, worktree="/tmp/x",
+        gates_path=_gate_mod(tmp_path), rubric_md="x", weights={"gates": 1.0},
+        run_case_fn=rc, judge_case_fn=lambda *a, **k: [], llm_call=None,
+    )
+    mean_elapsed = sum(c["elapsed_ms"] for c in out["cases"]) / len(out["cases"])
+    assert out["round_latency_ms"] == mean_elapsed
+
+
+def test_round_latency_ms_zero_for_empty_cases(tmp_path):
+    out = run_cases(
+        cases=[], worktree="/tmp/x",
+        gates_path=_gate_mod(tmp_path), rubric_md="x", weights={"gates": 1.0},
+        run_case_fn=lambda c, w: {}, judge_case_fn=lambda *a, **k: [], llm_call=None,
+    )
+    assert out["round_latency_ms"] == 0.0
+    assert out["cases"] == []

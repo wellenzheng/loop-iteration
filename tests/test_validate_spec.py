@@ -3,8 +3,10 @@ from pathlib import Path
 from loop_iter.validate_spec import validate_spec
 
 
-def _write_valid_spec(d: Path, parallelism=None, agent_type=None):
-    goal = "threshold: 0.85\nmax_rounds: 3\nweights: {gates: 2.0, conciseness: 1.0}\nregression: block\n"
+def _write_valid_spec(d: Path, parallelism=None, agent_type=None, weights=None):
+    weights_line = "weights: {gates: 2.0, conciseness: 1.0}" if weights is None \
+        else "weights: " + json.dumps(weights)
+    goal = f"threshold: 0.85\nmax_rounds: 3\n{weights_line}\nregression: block\n"
     if parallelism is not None:
         goal += f"parallelism: {parallelism}\n"
     if agent_type is not None:
@@ -305,3 +307,21 @@ def test_validate_spec_accepts_parallelism_with_subprocess_adapter(tmp_path):
     v = validate_spec(str(d))
     assert v["valid"]
     assert not any("parallelism" in w for w in v["warnings"])
+
+
+def test_validate_spec_warns_on_latency_weight(tmp_path):
+    from loop_iter.validate_spec import validate_spec
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d, weights={"gates": 0.5, "latency": 0.1})
+    v = validate_spec(str(d))
+    assert v["valid"]
+    assert any("latency" in w and "uncapped" in w for w in v["warnings"])
+
+
+def test_validate_spec_rejects_negative_latency_weight(tmp_path):
+    from loop_iter.validate_spec import validate_spec
+    d = tmp_path / "g"; d.mkdir()
+    _write_valid_spec(d, weights={"gates": 0.5, "latency": -0.1})
+    v = validate_spec(str(d))
+    assert not v["valid"]
+    assert any("latency" in p and "non-negative" in p for p in v["problems"])

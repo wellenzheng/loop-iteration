@@ -30,8 +30,12 @@ def judge_means(case_scores: list[dict]) -> dict[str, float]:
     return means
 
 
-def composite(case_scores: list[dict], weights: dict[str, float]) -> float:
-    """Weighted composite in 0-1. weights has key 'gates' + judge dim names."""
+def composite(case_scores: list[dict], weights: dict[str, float],
+              extra: dict[str, float] | None = None) -> float:
+    """Weighted composite in 0-1 (may exceed 1.0 if an `extra` component is uncapped).
+    weights has key 'gates' + judge dim names + any extra component names (e.g. 'latency').
+    `extra` maps component name -> score (e.g. {"latency": 1.7}); only components also
+    present in `weights` contribute. Absent `extra` -> current gates+judge behavior."""
     gpr = gate_pass_rates(case_scores)
     jm = judge_means(case_scores)
     gates_component = sum(gpr.values()) / len(gpr) if gpr else 0.0
@@ -44,7 +48,21 @@ def composite(case_scores: list[dict], weights: dict[str, float]) -> float:
         w = weights.get(dim, 0.0)
         acc += w * (score10 / 10.0)
         w_total += w
+    for name, score in (extra or {}).items():
+        w = weights.get(name, 0.0)
+        acc += w * score
+        w_total += w
     return acc / w_total if w_total else 0.0
+
+
+def compute_latency_score(baseline_latency_ms: float | None,
+                          round_latency_ms: float | None) -> float:
+    """Latency score relative to baseline, UNCAPPED (may exceed 1.0 when round is faster).
+    baseline 0/None (missing/old baseline, first run) -> 1.0 (neutral, degrade).
+    round 0 (all cases instant, theoretical) -> 1.0 (avoid divide-by-zero)."""
+    if not baseline_latency_ms or not round_latency_ms:
+        return 1.0
+    return baseline_latency_ms / round_latency_ms
 
 
 def regressed_gates(current: dict[str, float], best: dict[str, float]) -> list[str]:

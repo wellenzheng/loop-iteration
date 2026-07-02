@@ -1,5 +1,6 @@
 from __future__ import annotations
 import concurrent.futures
+import time
 from loop_iter.gates import load_gates, run_gates
 from loop_iter.judge import judge_case as _default_judge
 from loop_iter.scoring import composite, gate_pass_rates, judge_means
@@ -20,7 +21,7 @@ def run_cases(cases: list[dict], worktree: str,
     Safe when the per-case run_case call holds no shared mutable state across calls:
     claude-p/command (subprocess per call), local-service (transient httpx), and
     llm_client.chat + run_gates are all thread-safe. python-import is safe when the shim
-    builds fresh per-call state (the maas shim's asyncio.run per call is thread-local);
+    builds fresh per-call state (e.g. an asyncio.run-per-call shim with a thread-local loop);
     custom adapter.py is safe when start()'s module globals are only read by run_case and
     run_case itself is thread-safe. validate_spec warns for python-import>1; smoke-test it.
     Results are returned in original case order (executor.map preserves submission order).
@@ -29,8 +30,10 @@ def run_cases(cases: list[dict], worktree: str,
     service = run_case_fn if isinstance(run_case_fn, ServiceAdapter) else None
 
     def _run_one(case):
+        t0 = time.perf_counter()
         result = (service.run_case(case, worktree) if service is not None
                   else run_case_fn(case, worktree))
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
         gate_results = run_gates(result, case, gates)
         judged = judge_case_fn(result, case, rubric_md, llm_call)
         return {
@@ -40,6 +43,7 @@ def run_cases(cases: list[dict], worktree: str,
             "gates": gate_results,
             "judge": judged or [],
             "error": result.get("error"),
+            "elapsed_ms": elapsed_ms,
         }
 
     case_scores: list[dict]
@@ -54,9 +58,12 @@ def run_cases(cases: list[dict], worktree: str,
     finally:
         if service is not None:
             service.stop()
+    elapsed = [c["elapsed_ms"] for c in case_scores]
+    round_latency_ms = sum(elapsed) / len(elapsed) if elapsed else 0.0
     return {
         "cases": case_scores,
         "composite": composite(case_scores, weights),
         "gate_pass_rates": gate_pass_rates(case_scores),
         "judge_means": judge_means(case_scores),
+        "round_latency_ms": round_latency_ms,
     }

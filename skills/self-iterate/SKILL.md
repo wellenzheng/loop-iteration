@@ -68,6 +68,10 @@ the browser doesn't auto-open.
       programmatic concurrency, not agent-decided. Safe out-of-the-box for
       `claude-p`/`command`/`local-service`; for `python-import`/custom it is safe when the shim builds
       fresh per-call state — run `smoke` with it set to confirm.)*
+      *(If `weights.latency` is set, each round's `scores.json` entry carries `latency_score`,
+      `round_latency_ms`, `baseline_latency_ms`, and a `latency_feedback` string attributing the
+      delta to phases (when `trace.timings` present) or to cases. Read it to decide where to cut
+      latency — e.g. fewer/redundant tool calls.)*
    d. **Goal-check + advance.** `"$PY" <plugin>/scripts/loop_iter/cli.py goal-check --eval .self-iterate/<goal> --run-id <run_id>`. Computes the verdict and advances: `met` or `round >= max_rounds` -> `phase=done`; otherwise -> `phase=maker`, `round++`.
 4. **Report** (at `done`): `"$PY" <plugin>/scripts/loop_iter/cli.py report --eval .self-iterate/<goal> --run-id <run_id>`. Writes `winner.diff` + `report.md`. Surface the best round + whether `met`.
 
